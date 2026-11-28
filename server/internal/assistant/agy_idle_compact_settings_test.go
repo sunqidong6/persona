@@ -91,9 +91,10 @@ func TestAgyIdleCompactSettingsToolAndNodeConfig(t *testing.T) {
 
 	connectedPolicy := func() assistantwire.AgyIdleCompaction {
 		t.Helper()
-		for _, call := range s.nodeConnectCalls(ctx, "server") {
-			if call.Method != "node.configure" {
-				continue
+		calls := s.nodeConnectCalls(ctx, "server")
+		for _, call := range calls {
+			if call.Method != "node.configure" || !strings.Contains(string(call.Params), `"agy_idle_compaction"`) {
+				continue // Other node.configure calls carry settings such as the BotMux Owner Union ID.
 			}
 			var payload struct {
 				Policy  *assistantwire.AgyIdleCompaction `json:"agy_idle_compaction"`
@@ -110,7 +111,7 @@ func TestAgyIdleCompactSettingsToolAndNodeConfig(t *testing.T) {
 			}
 			return *payload.Policy
 		}
-		t.Fatal("nodeConnectCalls did not include node.configure")
+		t.Fatalf("nodeConnectCalls did not include node.configure for AGY idle compaction: %+v", calls)
 		return assistantwire.AgyIdleCompaction{}
 	}
 	want := assistantwire.AgyIdleCompaction{

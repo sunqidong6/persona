@@ -576,6 +576,26 @@ When enabled, tasks dispatched from the main chat (`task_plan`; also `agent_star
 
 ### Supervision (#3124)
 
+Routine reminders skip tasks awaiting the owner's acceptance, parked tasks, and tasks already waiting for the owner.
+They also skip a task for two minutes after verified owner input to one of its linked Agent sessions. An interruption
+while the owner already has the next action does not need its own turn. A recent owner message to that same Agent skips
+the generic owner-return reminder while it stays recent. A card that needs reissuing still follows the direct path.
+Completed work for review, explicit Agent reports, questions, permission cards, decisions, launch failures, escalations,
+and an open task's PR conflicts keep their direct routes under the automatic supervision mode.
+
+In **Settings › Assistant profile › Agent follow-up**, **Review routine follow-ups in briefings** is off by default because model-based
+deferral and its background model calls are opt-in. When enabled, Persona asks the configured **Sorting** model
+(`inbox.triage`) about eligible routine reminders and PR side signals in batches. It uses the verdict immediately.
+An inconclusive, unavailable, or invalid result goes to the briefing. The model can choose only whether to wake the
+supervisor or save the signal for review. The manager records each verdict with the signal, destination, reason, and
+time in Postgres (`supervision_triage`). A delivery can retry without changing a recorded verdict.
+The settings tool uses the key `assistant.supervision_triage` with the Boolean value `true` or `false` and asks the
+owner to approve a change. The manager logs how many routine signals the deterministic rules suppress in a batch.
+
+The morning and evening briefings with facts enabled list saved follow-ups from the last 24 hours and all older
+follow-ups that have yet to appear in a briefing. The saved verdicts remain available after being listed. Turning off
+triage stops asking the model about new signals and leaves the saved follow-ups in the briefings.
+
 Queued supervision digests retain their structured signals in the manager's relay setting (#10424). At drain time,
 the manager loads the task ledger, drops signals that no longer hold, and renders the remaining entries using the
 same rules as a new digest. An entirely obsolete digest leaves the queue without starting a conversation turn;
@@ -1130,6 +1150,15 @@ apps (`docs/apple/ios.md` "Suggested standing rule and held decisions") and the 
 
 #### Asks go to the supervisor first (#3589)
 
+Internal execution questions from `ask_user` declare `decision_scope: "internal"`. An owner decision instead carries
+`why_owner` (the existing decision reasons) or `owner_action` (`personal_unlock`, `login`, `second_factor`,
+`experience_check`, or `spending`). An unclassified call is rejected before publishing a card. A personal unlock stays
+in the owner's own app: question cards never collect passwords or private keys. These rights are kept in the original
+tool input, including `wait: false`, so restart does not change who may answer. Internal expiry authorizes nothing,
+takes no recommended default and creates no owner decision. Internal held-card reminders emit only the work event and
+supervisor signal; they never construct an owner notification. Ordinary owned-Agent sensitive delegation uses the same
+reviewer gate; isolated-track boundaries still require the owner and external connector writes keep their own gates.
+
 With leaders configured (`assistant.leaders` not empty), a supervised task's questions, permissions and plans go to its
 supervisor first. Without leaders, a supervised task's parsed terminal dialogs (#11195) and non-six-class agent
 permissions and questions go to its supervising conversation (the main conversation) through the same active `ask` route
@@ -1144,11 +1173,20 @@ permissions and questions go to its supervising conversation (the main conversat
   question, or `allow` for Yes/No), kept as the assistant's answer and the task's decision; a dialog that trusts a
   folder, accepts Bypass Permissions, may delete files (`Risk: delete`) or acts in the owner's name is the owner's
   (`userScreen`), and only an explicit `ask_escalate` rings the owner about it. Unparsed screens and password or private
-  input keep their existing owner route. The conversations' own cards stay the user's: a card of the main
-  conversation, the background supervisor or a leader (`supervisorConversation`) goes up no ladder, and the route that
-  hands other cards of none of the owner's six kinds to a supervisor or the main conversation (`handNonOwnerCard`,
-  `card_nonowner_route.go`) leaves it alone too. Handed on, such a card waited where no turn was started for it, no
-  timeout moved it and `ask_escalate`, which takes a task, could not hand it up (#15360). The card is shown on the apps
+  input keep their existing owner route. Internal cards raised by a direction lead now go to the main conversation. The main
+  conversation's own internal cards use an independent background reviewer; if none is registered, the manager starts
+  that reviewer through the existing audited conversation lifecycle. Failure to obtain a reviewer closes the request
+  unanswered. This does not grant a new task supervisor or authorize the source to answer its own card.
+  An extension source label is not maintenance authority: routing and execution use the same explicit operation
+  predicate. Unknown operations retain their owner gate. Before Assistant setup, manual node questions keep their
+  existing interaction; manager-owned internal questions never use that fallback.
+  `handNonOwnerCard` uses the active durable relay queue for internal questions, permissions and maintenance approvals:
+  a busy or offline recipient is retried, delivery and failure are work events, and `interaction_answer` attributes the
+  decision to the assistant. Sensitive delegation approvals are bound to the exact proposal, track and decision
+  authority. Source membership is checked again after approval, and the target is looked up again before sending;
+  a changed or unavailable boundary cannot reuse an internal approval. The interaction's expiry is never extended.
+  Restart rebuilds its route and wake-up;
+  stale relay generations cannot act on the rebuilt route. The card is shown on the apps
   marked `delegating` and rings nothing: no push, no bot card, no Persona Link notification. A card the supervisor
   holds (any kind but a question) is not the owner's: the apps count no session that waits only on such cards in Needs
   you (the hub's `supervisor_held` count) and offer no buttons to answer it (2026-11-23, D11 of
@@ -1196,9 +1234,9 @@ permissions and questions go to its supervising conversation (the main conversat
   decision; the last rung needing the user does not hand it to them. No timeout hands a card to the user, with the
   hub's push tiering on or off: past its last rung a card goes back to the task's supervisor and stays there
   (parked), the entry saying it came back; the supervisor is reminded each `askHoldFor`, at most `askRemindMax` (3)
-  times, the card stays on the apps marked `delegating`, and only `ask_escalate` hands it to the user. With the push
-  grading switch on (`docs/server/server.md`) the first reminder also leaves the owner a held P1 notice for the Needs
-  you list and the briefing; with it off nothing goes to the owner (a P1 would push).
+  times, the card stays on the apps marked `delegating`, and only `ask_escalate` hands it to the user. A reminder
+  records its work event and wakes the supervisor only. It constructs no owner notice, regardless of push grading
+  or attention settings.
   `ask_escalate` takes `why_owner` and `p0`: with the switch on only `irreversible`, `visible_to_others`,
   `only_owner_knows` or `p0` push, the rest go to the Needs you list and the briefing without a push, bot card or
   channel message.
