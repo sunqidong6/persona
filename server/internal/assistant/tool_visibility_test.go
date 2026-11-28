@@ -167,6 +167,28 @@ func TestToolVisibilityExpiryAndExactAliasMatching(t *testing.T) {
 	}
 }
 
+func TestToolVisibilityPolicyRequiresFullCredentialsAndValidTargets(t *testing.T) {
+	s := newFleetTest(t).s
+	const path = assistantwire.ToolVisibilityRoute
+	for _, role := range []string{roleExtension, "answer"} {
+		for _, method := range []string{http.MethodGet, http.MethodPut} {
+			w := serveAs(s, role, method, path, `{"tool_visibility":{}}`)
+			if w.Code != http.StatusForbidden {
+				t.Errorf("%s %s returned %d", role, method, w.Code)
+			}
+		}
+	}
+	for _, body := range []string{
+		`{}`,
+		`{"tool_visibility":{"roles":{"unsupported":{"denylist":["resource_status"]}}}}`,
+		`{"tool_visibility":{"roles":{"ordinary":{"allowlist":["*"]}}}}`,
+		`{"tool_visibility":{"sessions":[{"machine":"mac","session":"","allowlist":[]}]}}`,
+		`{"tool_visibility":{"sessions":[{"machine":"mac","session":"chat"},{"machine":"mac","session":"chat"}]}}`,
+	} {
+		putVisibility(t, s, body, http.StatusBadRequest)
+	}
+}
+
 type toolVisibilityTestStore struct {
 	*fleetMem
 	failRead atomic.Bool
@@ -312,7 +334,7 @@ func TestToolVisibilityReconnectOrdersUpdatedAndOmitsExtensionHelloPolicy(t *tes
 	st := newFleetMem()
 	d := newFleetDevs()
 	n := d.add("mac", "Mac")
-	s := New(Options{Hub: b, Store: func() Store { return st }, Devices: d, Logf: testLogf(t)})
+	s := New(Options{Hub: newFakeHub(), Store: func() Store { return st }, Devices: d, Logf: testLogf(t)})
 	b.svc, b.ctx = s, ctx
 	firstEvents := b.client.OnConnecting()
 	if err := b.onHello(json.RawMessage(`{"owner":"first"}`)); err != nil {

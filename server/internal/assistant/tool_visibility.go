@@ -34,16 +34,23 @@ type toolVisibilityBook struct {
 var transitioningToolVisibility = &assistantwire.ToolVisibilityPolicies{}
 
 func (s *Service) readToolVisibility(ctx context.Context) (*assistantwire.ToolVisibilityPolicies, error) {
-	var policy assistantwire.ToolVisibilityPolicies
+	var policy *assistantwire.ToolVisibilityPolicies
 	if st := s.store(); st != nil {
-		if _, err := st.Setting(ctx, toolVisibilityKey, &policy); err != nil {
+		found, err := st.Setting(ctx, toolVisibilityKey, &policy)
+		if err != nil {
 			return nil, err
 		}
+		if found && policy == nil {
+			return nil, errors.New("stored MCP tool visibility policy is null")
+		}
 	}
-	if err := normalizeToolVisibility(&policy); err != nil {
+	if policy == nil {
+		policy = &assistantwire.ToolVisibilityPolicies{}
+	}
+	if err := normalizeToolVisibility(policy); err != nil {
 		return nil, err
 	}
-	return &policy, nil
+	return policy, nil
 }
 
 func (s *Service) toolVisibilityPolicies(ctx context.Context) (*assistantwire.ToolVisibilityPolicies, bool) {
