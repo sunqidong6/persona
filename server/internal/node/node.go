@@ -1437,9 +1437,6 @@ func (n *Node) handleMethod(ctx context.Context, method string, params json.RawM
 	switch method {
 	case "session.attach":
 		return ok(n.attachCodex(ctx, p.SessionID))
-	case assistantwire.NodeMCPVisibilityInvalidate:
-		n.invalidateToolVisibility()
-		return struct{}{}, nil
 	case "ping": // the hub checking a tailcat connection is alive (its userspace TCP has no keepalive)
 		return map[string]any{}, nil
 	case "node.info":

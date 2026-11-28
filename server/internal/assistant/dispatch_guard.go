@@ -16,6 +16,7 @@ import (
 
 	"github.com/nwverse/persona/server/internal/apierr"
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/compat"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
 )
@@ -218,7 +219,7 @@ func (s *Service) ToolsFor(ctx context.Context, machine, session string) []proto
 	}
 	tools := append(s.Tools(ctx), s.healthTools(ctx, machine, session)...)
 	tools = append(tools, s.externalSourceTools(ctx, machine, session)...)
-	return visibility.Filter(append(s.guardTools(ctx, machine, session, tools), s.spaceTools(ctx, machine, session)...))
+	return visibility.Filter(append(s.guardTools(ctx, machine, session, tools), s.spaceTools(ctx, machine, session)...), compat.MCPToolIdentity)
 }
 
 // rejectDuplicateGuardKeys validates every object occurrence before RawMessage decoding can discard an earlier

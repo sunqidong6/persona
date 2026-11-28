@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/compat"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
 )
@@ -161,12 +162,12 @@ func TestToolVisibilityExpiryAndExactAliasMatching(t *testing.T) {
 	decision := visibilityOpen
 	applyVisibilityRule(&decision, rule, expires.Add(-time.Nanosecond))
 	for _, name := range []string{"persona_settings", "jarvis_settings", "ask_jarvis", "mcp__jarvis__ask_persona"} {
-		if decision.Allows(name) {
+		if decision.Allows(compat.MCPToolIdentity(name)) {
 			t.Errorf("denied alias %q was allowed", name)
 		}
 	}
 	for _, name := range []string{"my_jarvis_settings", "mcp__jarvis_extra__jarvis_settings", "mcp__other__ask_persona", "jarvis_settings_extra"} {
-		if !decision.Allows(name) {
+		if !decision.Allows(compat.MCPToolIdentity(name)) {
 			t.Errorf("near match %q was denied", name)
 		}
 	}

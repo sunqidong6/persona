@@ -403,7 +403,7 @@ func (s *Service) nodeRequest(ctx context.Context, machine, method string, param
 				}
 				return out, true, nil
 			}
-			out := map[string]any{"tools": decision.Filter(s.runtimeLeaderTools(ctx, machine, session, p.Guest))}
+			out := map[string]any{"tools": decision.Filter(s.runtimeLeaderTools(ctx, machine, session, p.Guest), compat.MCPToolIdentity)}
 			if p.WithVisibility && (session != "" || decision.Mode != assistantwire.ToolVisibilityOpen) {
 				out["tool_visibility"] = decision
 			}

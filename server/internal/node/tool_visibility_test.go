@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/compat"
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
@@ -46,7 +47,7 @@ func TestToolVisibilityRuntimeDiscoveryAndHooks(t *testing.T) {
 			reply.ToolVisibility = &decision
 		}
 		if !p.VisibilityOnly {
-			reply.Tools = decision.Filter([]proto.Tool{{Name: "phone_contacts", InputSchema: json.RawMessage(`{"type":"object"}`)}})
+			reply.Tools = decision.Filter([]proto.Tool{{Name: "phone_contacts", InputSchema: json.RawMessage(`{"type":"object"}`)}}, compat.MCPToolIdentity)
 		}
 		return reply, nil, true
 	}

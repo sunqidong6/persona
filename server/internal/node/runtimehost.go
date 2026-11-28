@@ -752,12 +752,12 @@ func (rh *RuntimeHost) request(ctx context.Context, h *runtimeConn, method strin
 		}
 		if assistant && !p.LeaderOnly {
 			visibility := discoveryVisibility(res)
-			res.Tools = append(res.Tools, visibility.Filter(n.gateTools())...)
+			res.Tools = append(res.Tools, visibility.Filter(n.gateTools(), compat.MCPToolIdentity)...)
 			if h.remoteAgent() {
 				if p.SessionID == "" {
-					res.Tools = append(res.Tools, visibility.Filter(n.memoryTools())...)
+					res.Tools = append(res.Tools, visibility.Filter(n.memoryTools(), compat.MCPToolIdentity)...)
 				} else if _, ok := n.sessionAllowsMemoryTools(p.SessionID); ok {
-					res.Tools = append(res.Tools, visibility.Filter(n.memoryTools())...)
+					res.Tools = append(res.Tools, visibility.Filter(n.memoryTools(), compat.MCPToolIdentity)...)
 				}
 			}
 		}

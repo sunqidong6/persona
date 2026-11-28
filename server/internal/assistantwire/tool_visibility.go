@@ -5,7 +5,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nwverse/persona/server/internal/compat"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/wireids"
 )
@@ -29,6 +28,10 @@ const (
 	ToolVisibilityRoute         = "/api/v1/assistant/tool-visibility"
 	MCPWorkSearchTool           = "work_tools_search"
 )
+
+func init() {
+	Routes = append(Routes, "GET "+ToolVisibilityRoute, "PUT "+ToolVisibilityRoute)
+}
 
 type ToolVisibilityRole string
 
@@ -84,19 +87,19 @@ type ToolVisibilityDecision struct {
 	Denylist  []string           `json:"denylist,omitempty"`
 }
 
+// Allows reports whether the decision admits the canonical tool name.
 func (d ToolVisibilityDecision) Allows(name string) bool {
 	switch d.Mode {
 	case ToolVisibilityOpen:
 		return true
 	case ToolVisibilityCheck:
-		name = compat.MCPToolIdentity(name)
 		return !slices.Contains(d.Denylist, name) && (d.Allowlist == nil || slices.Contains(d.Allowlist, name))
 	default:
 		return false
 	}
 }
 
-func (d ToolVisibilityDecision) Filter(tools []proto.Tool) []proto.Tool {
+func (d ToolVisibilityDecision) Filter(tools []proto.Tool, canonicalName func(string) string) []proto.Tool {
 	if d.Mode == ToolVisibilityOpen || d.Mode == ToolVisibilityUnattributed {
 		return tools
 	}
@@ -105,7 +108,7 @@ func (d ToolVisibilityDecision) Filter(tools []proto.Tool) []proto.Tool {
 	}
 	visible := make([]proto.Tool, 0, len(tools))
 	for _, tool := range tools {
-		if d.Allows(tool.Name) {
+		if d.Allows(canonicalName(tool.Name)) {
 			visible = append(visible, tool)
 		}
 	}

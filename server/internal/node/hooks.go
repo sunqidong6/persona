@@ -263,7 +263,7 @@ func (n *Node) serveSock(ctx context.Context, c net.Conn) {
 			// shortcut: a gate that comes or goes while the hub's tools stay the same shows at their next change.
 			visibility := discoveryVisibility(res)
 			if res.Tools != nil && rt != nil && !guest && req.ToolSet == "" && res.Error == "" {
-				res.Tools = append(res.Tools, visibility.Filter(n.gateTools())...)
+				res.Tools = append(res.Tools, visibility.Filter(n.gateTools(), compat.MCPToolIdentity)...)
 			}
 			res.ToolVisibility = nil // decision metadata stays between the manager and node
 			resp = assistantwire.MCPLocalToolsReply{

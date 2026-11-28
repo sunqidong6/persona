@@ -19,12 +19,17 @@ type toolVisibilityCache struct {
 	decisions map[string]assistantwire.ToolVisibilityDecision
 }
 
-func (n *Node) invalidateToolVisibility() {
+func init() {
+	nodeRPC(assistantwire.NodeMCPVisibilityInvalidate, (*Node).invalidateToolVisibility)
+}
+
+func (n *Node) invalidateToolVisibility(_ context.Context, _ struct{}) (struct{}, error) {
 	c := &n.toolVisibility
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.epoch++
 	c.decisions = nil
+	return struct{}{}, nil
 }
 
 // visibilityEpochLocked also notices transport resumes, when the same Node and runtimes remain in use.

@@ -320,8 +320,6 @@ var Routes = []string{
 	"PUT /api/v1/assistant/dispatch-policy",
 	"GET /api/v1/assistant/dispatch-guard",
 	"PUT /api/v1/assistant/dispatch-guard",
-	"GET " + ToolVisibilityRoute,
-	"PUT " + ToolVisibilityRoute,
 	"GET /api/v1/assistant/worker-presets",
 	"GET /api/v1/assistant/start-defaults",
 	"PUT /api/v1/assistant/start-defaults",
