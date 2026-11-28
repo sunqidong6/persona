@@ -52,7 +52,7 @@ func TestToolVisibilityRuntimeDiscoveryAndHooks(t *testing.T) {
 	}
 	hub.mu.Unlock()
 
-	skills := t.TempDir()
+	skills := filepath.Join(n.home, ".persona", "skills")
 	t.Setenv("PERSONA_SKILLS_DIR", skills)
 	t.Setenv("PERSONA_PLUGIN_SKILLS_DIR", t.TempDir())
 	n.dir = filepath.Join(n.home, ".persona")
@@ -244,6 +244,9 @@ func TestToolVisibilityResumeDiscardsOpenDecisions(t *testing.T) {
 	defer a.Close()
 	r.extra <- b
 	if err := r.hub.Resume(ctx, a, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.hub.Call(ctx, "ping", struct{}{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if n.localToolVisible(ctx, "session", "example_api") || requests.Load() != 2 || r.made.Load() != 1 {
