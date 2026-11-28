@@ -115,10 +115,11 @@ func (d ToolVisibilityDecision) Filter(tools []proto.Tool) []proto.Tool {
 // MCPToolsQuery is a node's discovery request. WithVisibility opts into decision metadata used only by that node.
 // VisibilityOnly skips catalog work on an attributed local call whose decision needs to be checked.
 type MCPToolsQuery struct {
-	SessionID      wireids.SessionID `json:"session_id,omitempty"`
+	// These caller fields are explicit on the wire, including for an unattributed non-assistant caller.
+	SessionID      wireids.SessionID `json:"session_id"`
+	Assistant      bool              `json:"assistant"`
+	Guest          bool              `json:"guest"`
 	CallerCwd      string            `json:"caller_cwd,omitempty"`
-	Assistant      bool              `json:"assistant,omitempty"`
-	Guest          bool              `json:"guest,omitempty"`
 	Revision       string            `json:"revision,omitempty"`
 	ToolSet        string            `json:"tool_set,omitempty"`
 	LeaderOnly     bool              `json:"leader_only,omitempty"`
