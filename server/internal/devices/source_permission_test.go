@@ -3,6 +3,7 @@ package devices
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -55,8 +56,16 @@ func TestSourcePermissionUsesReservedDeliveryOnlyForNewNodes(t *testing.T) {
 	old := &testNode{}
 	connectedMachine(t, d, "modern", modern)
 	connectedMachine(t, d, "old", old)
-	if calls := modern.seen("node.info"); len(calls) == 0 || !strings.Contains(calls[0], `"manager_features":["source_permissions_v1"]`) {
-		t.Fatalf("initial capability announcement: %v", calls)
+	calls := modern.seen("node.info ")
+	if len(calls) == 0 {
+		t.Fatal("the manager did not announce its capabilities")
+	}
+	var query nodeproto.NodeInfoQuery
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(calls[0], "node.info ")), &query); err != nil {
+		t.Fatalf("invalid initial capability announcement: %v", err)
+	}
+	if !slices.Contains(query.ManagerFeatures, nodeproto.SourcePermissions) {
+		t.Fatalf("the manager did not announce source permissions: %v", query.ManagerFeatures)
 	}
 	proof := proto.SourcePermission{At: time.Now(), Session: "sender", Generation: "generation", Class: "bypass", Digest: strings.Repeat("a", 64)}
 	ctx := devicewire.WithSourcePermission(context.Background(), proof)
