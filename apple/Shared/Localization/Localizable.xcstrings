@@ -50882,6 +50882,29 @@
       },
       "extractionState": "manual"
     },
+    "Compacting context…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compacting context…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキストを圧縮中…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在压缩上下文…"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
     "Compacting Context…": {
       "localizations": {
         "en": {
