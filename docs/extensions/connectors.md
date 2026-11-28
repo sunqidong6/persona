@@ -241,8 +241,8 @@ with who did it (#5281); never a credential or a typed value. The actions and th
 3. Writes must be `Actions`; the `Describe` card must say who will see the result.
 4. `Status` answers only from memory (queried on every tool listing); errors get a one-sentence `Error`, and self-service fixes get a `Guide`.
 5. No body text, phone numbers or tokens in logs/errors.
-6. For external services, embed `netproxy.Egress` (`netproxy/egress.go`, also named `connector.Egress`) in config to get a `proxy` key (`http://[username:password@]host:port`, empty means direct).
-   Build every HTTP client with `Egress.HTTPClient`: use the proxy when configured, direct otherwise; invalid config errors rather than silently connecting directly. This is how `github.proxy` works (#1106);
+6. For external services, embed `netproxy.Egress` (`netproxy/egress.go`, also named `connector.Egress`) in config to get a `proxy` key (`http://[username:password@]host:port`; empty follows the process's proxy environment, direct when it names no proxy).
+   Build every HTTP client with `Egress.HTTPClient`: use the proxy when configured, the process's `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` otherwise; invalid config errors rather than silently using the environment or connecting directly. This is how `github.proxy` works (#1106);
    proxy-address parsing lives in `netproxy`, also used by `google.proxy`. Not yet wired: Telegram (MTProto, not HTTP), subprocess / third-party connectors (proxy must be passed to the program), see #1106.
 
 > **Process-extension connectors live outside the hub**: for example, a personal WeChat connector is a client for an external API service, delivered as an extension package (`.tar.gz` plus sha256) and installed from the extension marketplace.

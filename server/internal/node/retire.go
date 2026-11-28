@@ -81,12 +81,12 @@ func (n *Node) retire(ctx context.Context, id string, closeTerminal, afterExit b
 	if err := n.resolveStopRuntime(ctx, id); err != nil {
 		return false, err
 	}
+	if !cause.AllowsSupervisorResume() || cause == proto.StopRestart || cause == proto.StopTimeout {
+		cause = proto.StopUser
+	}
 	if !guard.Active {
 		if h, ok := n.runtimeCloseTarget(id); ok {
-			if _, err := n.runtimeClose(ctx, h, id); err != nil {
-				return false, err
-			}
-			return true, nil
+			return n.closeRuntimeWithCause(ctx, h, id, cause)
 		}
 	}
 	unlock, _, ok, err := n.stoppable(id, true)
@@ -109,9 +109,6 @@ func (n *Node) retire(ctx context.Context, id string, closeTerminal, afterExit b
 			return false, nil
 		}
 	}
-	if !cause.AllowsSupervisorResume() || cause == proto.StopRestart || cause == proto.StopTimeout {
-		cause = proto.StopUser
-	}
 	if err := n.closeWithCause(ctx, id, cause); err != nil {
 		return false, err
 	}
@@ -133,6 +130,15 @@ func (n *Node) runtimeCloseTarget(id string) (*runtimeConn, bool) {
 	h, _, _ := n.runtimes.belongs(id)
 	if h == nil {
 		return nil, false
+	}
+	if a, ok := n.agent(id); ok && a.PaneID != "" {
+		return h, false
+	}
+	h.mu.Lock()
+	pane := h.panes[id]
+	h.mu.Unlock()
+	if pane != "" {
+		return h, false
 	}
 	row, ok := h.row(id)
 	if !ok || !runtimeCanClose(row) || n.isAssistantSession(id) || n.runtimeAssistant(id) {
@@ -165,6 +171,43 @@ func (n *Node) runtimeClose(ctx context.Context, h *runtimeConn, id string) (boo
 		return false, err
 	}
 	return true, nil
+}
+
+// closeRuntimeWithCause records provenance around the runtime's irreversible close. It mirrors
+// closeWithCauseChecked: an automatic close starts as unknown and becomes its requested cause only after the runtime
+// confirmed the close; a user close keeps the save/readback guarantee before the runtime is asked when Persona owns a
+// session record. Runtime-owned sessions Persona did not start keep their cause on this runtime connection, never in
+// the node's Persona-owned state.
+func (n *Node) closeRuntimeWithCause(ctx context.Context, h *runtimeConn, id string, cause proto.StopCause) (closed bool, err error) {
+	if cause == proto.StopUser {
+		if err := n.runtimeStopCause(ctx, h, id, proto.StopUser, true); err != nil {
+			return false, err
+		}
+		defer h.setStopCause(id, proto.StopUser)
+	} else {
+		_ = n.runtimeStopCause(ctx, h, id, proto.StopUnknown, false)
+		defer func() {
+			if closed {
+				_ = n.runtimeStopCause(ctx, h, id, cause, false)
+			}
+		}()
+	}
+	return n.runtimeClose(ctx, h, id)
+}
+
+// runtimeStopCause records runtime close provenance. A session Persona started keeps its session record and the
+// durable save/readback path; a runtime-owned session Persona only observes has no record by design, so its cause is
+// kept on the connection rather than creating ownership.
+func (n *Node) runtimeStopCause(ctx context.Context, h *runtimeConn, id string, cause proto.StopCause, durable bool) error {
+	h.setStopCause(id, cause)
+	if _, owned := n.state.get(id); !owned {
+		return nil
+	}
+	if durable && cause == proto.StopUser {
+		return n.saveStopCause(ctx, id, cause)
+	}
+	n.state.stopped(id, cause)
+	return nil
 }
 
 // verifyRetireActivityGuardLocked checks live host state and current transcript activity under n.recovery and n.typing

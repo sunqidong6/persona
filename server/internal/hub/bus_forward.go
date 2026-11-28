@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nwverse/persona/server/internal/nodeproto"
 	"io"
 	"net/http"
 	"strings"
@@ -16,7 +17,6 @@ import (
 	"github.com/nwverse/persona/server/internal/devicewire"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/memtrim"
-	"github.com/nwverse/persona/server/internal/repositorywire"
 	"github.com/nwverse/persona/server/internal/rpc"
 )
 
@@ -137,9 +137,9 @@ func httpParams(req assistantwire.HTTPRequest) any {
 func relayHTTPTimeout(pattern string) time.Duration {
 	switch pattern {
 	case assistantwire.RouteBackendWorkspacePrepare:
-		return assistantwire.BackendWorkspacePrepareTimeout(repositorywire.MaxTaskRepositories)
+		return assistantwire.BackendWorkspacePrepareTimeout(nodeproto.TaskWorkspaceMaxRepositories)
 	case assistantwire.RouteRepoMirrorSync:
-		return repositorywire.MirrorEnsureTimeout + time.Minute
+		return nodeproto.RepoMirrorEnsureSeconds*time.Second + time.Minute
 	default:
 		return 5 * time.Minute
 	}

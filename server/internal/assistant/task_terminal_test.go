@@ -385,7 +385,7 @@ func TestRuntimeTaskSessionStaysOpenOnAccept(t *testing.T) {
 }
 
 // #17918: once a runtime task session is done, the same closeEndedTerminal path retires it exactly once.
-func TestCloseDoneTaskAgentsLeavesRuntimeSessions(t *testing.T) {
+func TestCloseDoneTaskAgentsRetiresRuntimeSessions(t *testing.T) {
 	old := taskCloseIdle
 	taskCloseIdle = 0
 	t.Cleanup(func() { taskCloseIdle = old })
