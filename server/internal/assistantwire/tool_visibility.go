@@ -70,9 +70,10 @@ type ToolVisibilityPolicies struct {
 type ToolVisibilityMode string
 
 const (
-	ToolVisibilityOpen       ToolVisibilityMode = "open"
-	ToolVisibilityCheck      ToolVisibilityMode = "check"
-	ToolVisibilityFailClosed ToolVisibilityMode = "fail_closed"
+	ToolVisibilityOpen         ToolVisibilityMode = "open"
+	ToolVisibilityCheck        ToolVisibilityMode = "check"
+	ToolVisibilityUnattributed ToolVisibilityMode = "unattributed"
+	ToolVisibilityFailClosed   ToolVisibilityMode = "fail_closed"
 )
 
 // ToolVisibilityDecision carries the effective filters for one discovery. A node can reuse Open until invalidated.
@@ -96,7 +97,7 @@ func (d ToolVisibilityDecision) Allows(name string) bool {
 }
 
 func (d ToolVisibilityDecision) Filter(tools []proto.Tool) []proto.Tool {
-	if d.Mode == ToolVisibilityOpen {
+	if d.Mode == ToolVisibilityOpen || d.Mode == ToolVisibilityUnattributed {
 		return tools
 	}
 	if d.Mode != ToolVisibilityCheck {

@@ -126,7 +126,8 @@ func TestToolVisibilityDiscoveryAndCallsAgree(t *testing.T) {
 		}
 	}
 	anonymous := visibilityDiscovery(t, s, ctx, `{"with_visibility":true}`)
-	if anonymous.ToolVisibility != nil || !toolListed(anonymous.Tools, "report_to_supervisor") {
+	if anonymous.ToolVisibility == nil || anonymous.ToolVisibility.Mode != assistantwire.ToolVisibilityUnattributed ||
+		anonymous.ToolVisibility.Allows("report_to_supervisor") || !toolListed(anonymous.Tools, "report_to_supervisor") {
 		t.Fatalf("session-less registration acquired attribution or lost its catalog: %+v", anonymous)
 	}
 	missing := visibilityDiscovery(t, s, ctx, `{"visibility_only":true}`)

@@ -158,7 +158,7 @@ func (s *Service) toolVisibilityDecision(ctx context.Context, machine, session s
 	}
 	if session == "" || machine == "" {
 		if discovery {
-			return visibilityOpen
+			return assistantwire.ToolVisibilityDecision{Mode: assistantwire.ToolVisibilityUnattributed}
 		}
 		return visibilityFailClosed
 	}

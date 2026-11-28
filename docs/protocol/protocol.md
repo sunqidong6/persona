@@ -2669,7 +2669,7 @@ Layer / preview and push-layer integration are follow-up work, not part of this 
 [MCP tool visibility for operators](../assistant/assistant.md#mcp-tool-visibility-for-operators) for policy syntax.
 
 On `mcp.tools`, a node can send `with_visibility: true` to receive `tool_visibility` with its list or revision
-reply. The decision carries a mode (`open`, `check` or `fail_closed`) and the effective allowlist and denylist when
+reply. The decision carries a mode (`open`, `check`, `unattributed` or `fail_closed`) and the effective allowlist and denylist when
 applicable. `visibility_only: true` returns the call decision without building a catalog. The manager advertises this
 contract in `node.info`'s `manager_features` as `tool_visibility`. Nodes reuse an attributed `open` reply while its
 connection and discovery epoch stay current. They recheck `check` and `fail_closed` before local execution.
