@@ -142,6 +142,7 @@ type Machine struct {
 	// (machine_state_writer.go), so a stalled Store cannot hold the node's rpc read loop.
 	stateWriterOnce sync.Once
 	stateWriter     *nodeStateWriter
+	stateWriterMu   sync.Mutex // guards stateWriter for state.load, which reads it off the read loop
 	engineMu        sync.Mutex
 	// eventRetire admits an ordinary event callback or retires its connection; never lets a retired event follow the replacement.
 	eventRetire sync.Mutex
@@ -1167,6 +1168,7 @@ func (m *Machine) stopped() bool {
 func (m *Machine) onRequest(ctx context.Context, method string, params json.RawMessage) (any, error) {
 	switch method {
 	case "state.load":
+		m.awaitQueuedStates(ctx) // read what the node put before it (machine_state_writer.go, #17974)
 		out := map[string]db.NodeSession{}
 		if s, ok := m.d.opts.Store.(nodeStateStore); ok {
 			var err error

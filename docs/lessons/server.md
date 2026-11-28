@@ -466,6 +466,14 @@ gate and checks the following reply is dispatched while the gate is still held
 (`server/internal/devices/stateput_readloop_test.go`); the old synchronous code fails that assertion deterministically
 at the reply deadline, not by a wall-clock margin.
 
+Moving the write off the read loop also took away a guarantee readers relied on (#17974): a `state.load` sent after a
+`state.put` on the same connection used to read it. The node checks a stop cause that way before it closes anything
+(`saveStopCause`, `stop_provenance.go`: a miss refuses the stop with `stop_not_saved`), and the share creation receipt
+must be in the Store once a later request is answered. Before taking a write off a path, list who reads what it wrote
+next and keep that order. Here `state.load`, a request rpc already serves on its own goroutine, waits for the writer
+(`flushed`) for at most one Store call budget, so the read loop still never waits on the Store
+(`server/internal/devices/stateload_fence_test.go`).
+
 ## App connection bookkeeping uses ordered background snapshots (2026-11-15, #6889)
 
 `client_hello` and `register_phone` also waited in the app connection's read loop: `hub.client_apps` did a settings

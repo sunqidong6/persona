@@ -22,7 +22,9 @@ class TrafficReportTests(unittest.TestCase):
         for platform, source, count in (("ios", "app", 80), ("ios", "widget", 30), ("ios", "liveactivity", 20), ("android", "app", 5), ("web", "app", 9)):
             message = 'traffic minute=2026-01-01T01:00:00Z identity=0123456789abcdef platform=%s source=%s platform_basis=user-agent source_basis=user-agent route="GET /api/v1/todos" event=http action=started count=%d body_bytes=0 max_body_bytes=0 elapsed_ms=0' % (platform, source, count)
             events.append(json.dumps({"MESSAGE": message}))
-        data = report.aggregate(list(report.rows(events, start, end)))
+        totals, target = report.aggregate(report.rows(events, start, end))
+        self.assertIsNone(target)
+        data = totals.report()
         self.assertEqual(sum(row["count"] for row in data["hourly"]), 144)
         self.assertEqual(len(data["hourly"]), 5)
         self.assertEqual(data["untagged_bucket_rows"], 0)
@@ -36,7 +38,8 @@ class TrafficReportTests(unittest.TestCase):
                    'action=started count=4 body_bytes=8 max_body_bytes=4 elapsed_ms=16')
         record = json.dumps({"MESSAGE": message})
         lines = [record, "null", "[]", "42", json.dumps(message), record]
-        data = report.aggregate(report.rows(lines, start, end))
+        totals, _ = report.aggregate(report.rows(lines, start, end))
+        data = totals.report()
         self.assertEqual([(row["count"], row["body_bytes"]) for row in data["hourly"]], [(8, 16)])
 
     def test_connection_overlap_and_redaction(self):
@@ -127,6 +130,37 @@ class TrafficReportTests(unittest.TestCase):
             again = subprocess.run(command, text=True, capture_output=True, timeout=10)
             self.assertNotEqual(again.returncode, 0)
             self.assertIn("VERDICT: FAILED", again.stderr)
+
+    def test_cli_reports_all_and_target_totals_from_the_same_export(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            identity = "0123456789abcdef"
+            (root / "identity.json").write_text(json.dumps({"identity": identity}))
+            (root / "connections.json").write_text("[]")
+            events = ("null", *(
+                json.dumps({"MESSAGE": f"traffic minute=2026-01-01T01:00:00Z identity={device} "
+                            "route=unmatched event=http action=started "
+                            f"count={count} body_bytes={size} max_body_bytes={size} elapsed_ms={count}"})
+                for device, count, size in ((identity, 2, 8), ("fedcba9876543210", 3, 12), (identity, 4, 9))
+            ))
+            (root / "journal.jsonl").write_text("\n".join(events) + "\n")
+            command = [sys.executable, "-I", str(HERE / "hub_traffic_report.py"),
+                       "--since", "2026-01-01T00:00:00Z", "--until", "2026-01-02T00:00:00Z",
+                       "--journal-file", str(root / "journal.jsonl"), "--connections-file", str(root / "connections.json"),
+                       "--identity-file", str(root / "identity.json"), "--output", str(root / "out.json")]
+            run = subprocess.run(command, text=True, capture_output=True, timeout=10)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertIn("bucket_rows=3", run.stdout)
+            output = (root / "out.json").read_text()
+            self.assertNotIn(identity, output)
+            data = json.loads(output)
+            for scope, expected in (("all_clients", (9, 29, 12, 3)), ("target", (6, 17, 9, 2))):
+                totals = data[scope]
+                self.assertEqual(len(totals["hourly"]), 1)
+                row = totals["hourly"][0]
+                self.assertEqual((row["count"], row["body_bytes"], row["max_body_bytes"], totals["untagged_bucket_rows"]),
+                                 expected)
+                self.assertEqual(totals["unknown_platform_requests"], expected[0])
 
 
 if __name__ == "__main__":

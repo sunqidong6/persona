@@ -70,23 +70,40 @@ def rows(stream, since, until):
             continue  # never print a malformed/private journal record
 
 
-def aggregate(records):
-    totals = collections.defaultdict(lambda: [0, 0, 0, 0])
-    untagged = unknown_platform = native_default = 0
-    for row in records:
+class TrafficTotals:
+    def __init__(self):
+        self.buckets = collections.defaultdict(lambda: [0, 0, 0, 0])
+        self.rows = self.untagged = self.unknown_platform = self.native_default = 0
+
+    def add(self, row):
         key = (row["hour"], row["platform"], row["source"], row["event"], row["action"], row["route"])
-        out = totals[key]
+        out = self.buckets[key]
         out[0] += row["count"]
         out[1] += row["body_bytes"]
         out[2] = max(out[2], row["max_body_bytes"])
         out[3] += row["elapsed_ms"]
-        untagged += not row["tagged"]
+        self.rows += 1
+        self.untagged += not row["tagged"]
         if row["event"] == "http" and row["action"] == "started":
-            unknown_platform += row["count"] if row["platform"] == "unknown" else 0
-            native_default += row["count"] if row.get("source_basis") == "native-default" else 0
-    return {"hourly": [dict(zip(("hour", "platform", "source", "event", "action", "route"), key), count=v[0], body_bytes=v[1], max_body_bytes=v[2], elapsed_ms=v[3]) for key, v in sorted(totals.items())],
-            "untagged_bucket_rows": untagged, "unknown_platform_requests": unknown_platform,
-            "native_default_surface_requests": native_default}
+            self.unknown_platform += row["count"] if row["platform"] == "unknown" else 0
+            self.native_default += row["count"] if row.get("source_basis") == "native-default" else 0
+
+    def report(self):
+        columns = ("hour", "platform", "source", "event", "action", "route")
+        return {"hourly": [dict(zip(columns, key), count=v[0], body_bytes=v[1], max_body_bytes=v[2], elapsed_ms=v[3])
+                           for key, v in sorted(self.buckets.items())],
+                "untagged_bucket_rows": self.untagged, "unknown_platform_requests": self.unknown_platform,
+                "native_default_surface_requests": self.native_default}
+
+
+def aggregate(records, identity=None):
+    all_clients = TrafficTotals()
+    target = TrafficTotals() if identity is not None else None
+    for row in records:
+        all_clients.add(row)
+        if target is not None and row.get("identity") == identity:
+            target.add(row)
+    return all_clients, target
 
 
 def connection_report(sessions, since, until, identity=None):
@@ -169,7 +186,7 @@ def main():
             raise ValueError("identity file must contain a 16-hex anonymous identity, not a token")
     if args.journal_file:
         with Path(args.journal_file).open() as stream:
-            records = list(rows(stream, since, until))
+            all_clients, target = aggregate(rows(stream, since, until), identity)
     else:
         unit = args.unit
         if not unit:
@@ -183,19 +200,19 @@ def main():
             raise RuntimeError("no active hub unit; provide --unit")
         # Allow the final minute to flush; the payload bucket timestamp clips the window.
         text = subprocess.check_output(["journalctl", "--user", "-u", unit, "--since", since.strftime("%Y-%m-%d %H:%M:%S UTC"), "--until", (until+dt.timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M:%S UTC"), "--grep", "traffic minute=", "-o", "json", "--no-pager"], text=True, timeout=120)
-        records = list(rows(text.splitlines(), since, until))
+        all_clients, target = aggregate(rows(text.splitlines(), since, until), identity)
     sessions = read_connections(args, since, until)
     report = {"window_start": iso(since), "window_end": iso(until), "window_seconds": (until-since).total_seconds(),
-              "full_day": until-since == dt.timedelta(days=1), "all_clients": aggregate(records),
+              "full_day": until-since == dt.timedelta(days=1), "all_clients": all_clients.report(),
               "all_connections": connection_report(sessions, since, until),
               "limits": "Inference labels are not hardware/process proof; native-default is ambiguous. Bodies are before outer gzip, not radio bytes. Sum received and completed separately; acceptance is not delivery. Final buffered/in-flight events may be lost on process termination."}
-    if identity:
-        report["target"] = aggregate([r for r in records if r.get("identity") == identity])
+    if target is not None:
+        report["target"] = target.report()
         report["target_connections"] = connection_report(sessions, since, until, identity)
     with os.fdopen(os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as output:
         json.dump(report, output, indent=2)
         output.write("\n")
-    print("VERDICT: PASS read-only traffic report; full_day=%s; bucket_rows=%d" % (report["full_day"], len(records)))
+    print("VERDICT: PASS read-only traffic report; full_day=%s; bucket_rows=%d" % (report["full_day"], all_clients.rows))
 
 
 if __name__ == "__main__":
