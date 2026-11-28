@@ -94,6 +94,7 @@ jobs:
           if [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["title"])' "$PR_JSON")" == *-beta.* ]]; then channel=beta; fi
           printf 'channel=%s\n' "$channel" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
+        if: steps.source.outputs.number != '0'
         with:
           # A PR's proposed merge result, not its possibly stale head or an arbitrary branch.
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
