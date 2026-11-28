@@ -279,7 +279,7 @@ jobs:
       - name: Install the reviewed Android SDK, NDK and Rust targets
         run: |
           set -euo pipefail
-          sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0' 'platform-tools' 'ndk;29.0.14206865'
+          sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0' 'ndk;29.0.14206865'
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.98.0
           "$HOME/.cargo/bin/rustup" target add --toolchain 1.98.0 aarch64-linux-android x86_64-linux-android
           printf '%s\n' "$HOME/.cargo/bin" >> "$GITHUB_PATH"
