@@ -5,7 +5,7 @@ import { act, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { connectModuleHub } from "../../core/module-host";
-import { t } from "../../i18n";
+import { initI18n, t } from "../../i18n";
 import { setPairedToken } from "../../lib/api";
 import { ago } from "../../lib/format";
 import { channelStateText, type ChannelDetail } from "../../lib/channels";
@@ -1266,6 +1266,78 @@ describe("integration detail parity", () => {
   const unloadWarns = () => !window.dispatchEvent(new Event("beforeunload", { cancelable: true }));
   const input = (name: string) => host.querySelector<HTMLInputElement>(`#extension-field-${name}`)!;
 
+  it.each(["classic", "unified"])("counts fields that need Save in the %s editor", async (editor) => {
+    currentExt.form!.fields!.push(
+      { name: "computers", type: "array", items: { name: "", type: "string", format: "machine" } },
+      { name: "minutes", type: "integer" },
+    );
+    currentExt.config = { ...currentExt.config, computers: ["demo"], minutes: 5 };
+    await act(async () => root.render(editor === "classic"
+      ? <Extensions open={extension.id} onOpen={() => {}} />
+      : <IntegrationDetail target={extension} />));
+    const save = () => [...host.querySelectorAll("button")].find((b) => b.textContent === t("common.save")
+      && b.parentElement?.textContent?.includes(t("settings-extensions.revert")));
+    const editField = (name: string, value: string) => act(() => setInputValue(input(name), value));
+
+    await act(async () => host.querySelector<HTMLButtonElement>('#extension-field-computers [role="switch"][aria-label="demo"]')!.click());
+    expect(requests.some((r) => r.method === "PUT" && r.url.includes("/-/config"))).toBe(true);
+    expect(save()).toBeUndefined();
+
+    editField("display_alias", "First edit");
+    editField("display_alias", "Second edit");
+    editField("minutes", "10");
+    expect(host.textContent).toContain("还有 2 项待保存");
+    editField("minutes", "5");
+    expect(host.textContent).toContain("还有 1 项待保存");
+
+    editField("minutes", "invalid");
+    expect(host.textContent).toContain(t("settings-extensions.not_a_number"));
+    expect(save()?.disabled).toBe(true);
+    editField("minutes", "5");
+    editField("display_alias", "Team Lark");
+    expect(save()).toBeUndefined();
+
+    editField("display_alias", "Final edit");
+    await act(async () => save()!.click());
+    expect(currentExt.config?.display_alias).toBe("Final edit");
+    expect(save()).toBeUndefined();
+  });
+
+  it("excludes an in-flight machine switch while other fields are edited", async () => {
+    currentExt.form!.fields!.push({ name: "computers", type: "array", items: { name: "", type: "string", format: "machine" } });
+    currentExt.config = { ...currentExt.config, computers: ["demo"] };
+    const fetchNow = fetch;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT" && url.includes("/-/config")) await pending;
+      return fetchNow(url, init);
+    });
+    await act(async () => root.render(<IntegrationDetail target={extension} />));
+    const bar = () => host.querySelector('[data-settings-group="integration-save-bar"]');
+    await act(async () => host.querySelector<HTMLButtonElement>('#extension-field-computers [role="switch"][aria-label="demo"]')!.click());
+    expect(bar()).toBeNull();
+    act(() => setInputValue(input("display_alias"), "Edited while saving"));
+    expect(bar()?.textContent).toContain("还有 1 项待保存");
+    await act(async () => release());
+    expect(bar()?.textContent).toContain("还有 1 项待保存");
+    expect(currentExt.config?.computers).toBeUndefined();
+  });
+
+  it.each([
+    ["en", "1 field to save", "2 fields to save"],
+    ["zh-Hans", "还有 1 项待保存", "还有 2 项待保存"],
+    ["ja", "未保存の項目：1 件", "未保存の項目：2 件"],
+  ])("names one and two pending fields in %s", async (language, one, two) => {
+    await initI18n(language);
+    try {
+      expect(t("settings-extensions.fields_to_save", { count: 1 })).toBe(one);
+      expect(t("settings-extensions.fields_to_save", { count: 2 })).toBe(two);
+    } finally {
+      await initI18n("zh-Hans");
+    }
+  });
+
   it("keeps a draft after settings_moved and retries on the refreshed configuration", async () => {
     const fetchNow = fetch;
     let fail!: (answer: ReturnType<typeof ok>) => void;
@@ -1293,6 +1365,7 @@ describe("integration detail parity", () => {
       ...ok({ code: "settings_moved", error: "Settings moved. Try again." }), ok: false, status: 409,
     }));
     expect(host.textContent).toContain("Settings moved. Try again.");
+    expect(host.textContent).toContain("还有 1 项待保存");
     expect(input("endpoint").value).toBe("https://newer.example.com");
     expect(input("display_alias").value).toBe("Changed elsewhere");
     await act(async () => save.click());
@@ -1988,5 +2061,203 @@ describe("extension auth-to-connector sync and host-auth contract (#17803)", () 
     ));
     await flush();
     expect(section("connection")!.textContent).toContain(t("settings-hubconnector.hub_side_note"));
+  });
+});
+
+describe("unified capability detail shell (#17762)", () => {
+  const slotIds = () =>
+    [...host.querySelectorAll<HTMLElement>("[data-integration-slot]")].map((el) => el.getAttribute("data-integration-slot") || "");
+
+  it("mounts Feishu Bot external sources strictly after Inbox & Sync in both legacy and projected views", async () => {
+    currentConnectors.push({
+      id: "larkcli",
+      name: "Lark CLI",
+      status: "ok",
+      enabled: true,
+      archive: true,
+      inbox: true,
+      capabilities: ["login", "inbox", "archive"],
+    });
+
+    await act(async () => root.render(<IntegrationDetail target={{ kind: "builtin", id: "feishu-bot" }} />));
+    await flush();
+
+    expect(slotIds()).toEqual(["connection", "conversation_and_push", "inbox_and_sync", "external_sources"]);
+    const inboxEl = section("inbox")!;
+    const externalSlot = host.querySelector<HTMLElement>('[data-integration-slot="external_sources"]')!;
+    expect(inboxEl.compareDocumentPosition(externalSlot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // Projected Feishu Bot also mounts external_sources immediately after inbox_and_sync.
+    const ref = { manager: "assistant", kind: "service" as const, id: "feishu-bot" };
+    const projection = {
+      detail: {
+        item: {
+          ref,
+          name: "Feishu Bot",
+          origin: "builtin_service" as const,
+          capabilities: ["channels" as const, "data" as const],
+          availability: { state: "available" as const },
+        },
+        availability: [],
+        sections: [
+          { kind: "connection" as const, ref, availability: { state: "available" as const }, edit: "settings" as const },
+          { kind: "conversation_and_push" as const, ref: { manager: "assistant", kind: "channel" as const, id: "feishu" }, availability: { state: "available" as const }, edit: "settings" as const },
+          { kind: "inbox_and_sync" as const, ref: { manager: "assistant", kind: "connector" as const, id: "larkcli" }, availability: { state: "available" as const }, edit: "settings" as const },
+          { kind: "external_sources" as const, ref: { manager: "assistant", kind: "channel" as const, id: "feishu" }, availability: { state: "available" as const }, edit: "settings" as const },
+        ],
+      },
+      refresh: vi.fn(),
+      loading: false,
+    };
+
+    act(() => root.render(null));
+    await act(async () => root.render(
+      <IntegrationDetail
+        target={{ kind: "builtin", id: "feishu-bot", channelId: "feishu", connectorId: "larkcli", manager: "assistant" }}
+        projection={projection as never}
+      />,
+    ));
+    await flush();
+
+    expect(slotIds()).toEqual(["connection", "conversation_and_push", "inbox_and_sync", "external_sources"]);
+    const projInbox = section("inbox")!;
+    const projExternal = host.querySelector<HTMLElement>('[data-integration-slot="external_sources"]')!;
+    expect(projInbox.compareDocumentPosition(projExternal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("mounts all seven canonical capability slots in order and places unknown configuration.section fields in general settings", async () => {
+    currentExt = {
+      ...structuredClone(COMPOSITE_EXTENSION),
+      form: {
+        fields: [
+          ...(COMPOSITE_EXTENSION.form?.fields ?? []),
+          { name: "future_option", type: "string", title: "Future Option", section: "future_slot" as never },
+        ],
+      },
+      config: {
+        ...COMPOSITE_EXTENSION.config,
+        future_option: "fallback-val",
+      },
+    };
+
+    await act(async () => root.render(<IntegrationDetail target={{ kind: "extension", id: "larkx" }} />));
+    await flush();
+
+    expect(slotIds()).toEqual([
+      "connection",
+      "conversation_and_push",
+      "inbox_and_sync",
+      "external_sources",
+      "extension_configuration",
+      "information_access",
+      "lifecycle",
+    ]);
+    expect(section("extension-settings")!.querySelector('[data-field="future_option"]')).not.toBeNull();
+    expect(host.querySelector('[data-integration-detail="larkx"]')?.getAttribute("data-integration-resource")).toBe(
+      JSON.stringify(["", "extension", "larkx"]),
+    );
+  });
+
+  it("renders consistent origin badges for built-in extensions, standalone channels, and standalone connectors", async () => {
+    currentExt = { ...structuredClone(COMPOSITE_EXTENSION), source: "builtin" };
+    await act(async () => root.render(<IntegrationDetail target={{ kind: "extension", id: "larkx" }} />));
+    await flush();
+    expect(host.querySelector("h1")?.closest("section")?.textContent).toContain(t("settings-integrations.builtin_badge"));
+
+    const standaloneChannelProjection = {
+      detail: {
+        item: {
+          ref: { manager: "assistant", kind: "channel", id: "voice" },
+          name: "Voice",
+          origin: "standalone_channel",
+          capabilities: ["channels"],
+          availability: { state: "available" },
+        },
+        availability: [],
+        sections: [
+          { kind: "conversation_and_push", ref: { manager: "assistant", kind: "channel", id: "voice" }, availability: { state: "available" }, edit: "settings" },
+        ],
+      },
+      refresh: vi.fn(),
+      loading: false,
+    };
+    currentChannels.voice = { ...FEISHU_CHANNEL, id: "voice", name: "Voice", kind: "voice", read_only: true };
+    act(() => root.render(null));
+    await act(async () => root.render(
+      <IntegrationDetail
+        target={{ kind: "builtin", id: "voice", channelId: "voice", connectorId: null, manager: "assistant" }}
+        projection={standaloneChannelProjection as never}
+      />,
+    ));
+    await flush();
+    expect(host.querySelector("h1")?.closest("section")?.textContent).toContain(t("settings-integrations.cap_channels"));
+    expect(host.querySelector('[data-integration-detail="voice"]')?.getAttribute("data-integration-resource")).toBe(
+      JSON.stringify(["assistant", "channel", "voice"]),
+    );
+  });
+
+  it("preserves the mounted detail instance, open Advanced disclosure, and unsaved drafts across the 740px breakpoint", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+    const { Settings } = await import("../Settings");
+    let width = 820;
+    let resize!: () => void;
+    const measure = vi.spyOn(Element.prototype, "clientWidth", "get").mockImplementation(() => width);
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private notify: () => void) {}
+      observe(element: Element) { if (element.matches('[role="region"]')) resize = this.notify; }
+      disconnect() {}
+    });
+    const original = location.href;
+    history.replaceState(null, "", "/settings?tab=integrations&integration=ext%3Alarkx");
+    try {
+      await act(async () => root.render(<Settings onToggleSidebar={() => {}} />));
+      await act(async () => vi.dynamicImportSettled());
+      await flush();
+
+      const detailEl = host.querySelector<HTMLElement>('[data-integration-detail="larkx"]')!;
+      expect(detailEl).not.toBeNull();
+      const resourceBefore = detailEl.getAttribute("data-integration-resource");
+
+      // Open Advanced disclosure and edit fields before crossing the 740px breakpoint.
+      const advButton = section("extension-settings")!.querySelector<HTMLButtonElement>("[data-integration-advanced] button")!;
+      await act(async () => advButton.click());
+      expect(advButton.getAttribute("aria-expanded")).toBe("true");
+      const endpointInput = host.querySelector<HTMLInputElement>("#extension-field-endpoint")!;
+      await act(async () => setInputValue(endpointInput, "https://stable-across-breakpoint.example.com"));
+
+      const readsBefore = requests.filter((r) => r.method === "GET" && r.url.includes("/larkx/")).length;
+      for (width of [739, 740, 680, 900]) {
+        await act(async () => resize());
+        expect(!!host.querySelector("[data-integrations-split]")).toBe(width >= 740);
+        expect(host.querySelector('[data-integration-detail="larkx"]')).toBe(detailEl);
+        expect(detailEl.getAttribute("data-integration-resource")).toBe(resourceBefore);
+        expect(section("extension-settings")!.querySelector<HTMLButtonElement>("[data-integration-advanced] button")?.getAttribute("aria-expanded")).toBe("true");
+        expect(host.querySelector<HTMLInputElement>("#extension-field-endpoint")?.value).toBe("https://stable-across-breakpoint.example.com");
+      }
+      expect(requests.filter((r) => r.method === "GET" && r.url.includes("/larkx/")).length).toBe(readsBefore);
+    } finally {
+      measure.mockRestore();
+      history.replaceState(null, "", original);
+    }
+  }, 30000);
+
+  it("exposes an explicit Switch assistant button on cross-assistant details without silently switching", async () => {
+    const onSwitchAssistant = vi.fn();
+    await act(async () => root.render(
+      <IntegrationDetail
+        integrationsV2
+        target={{ kind: "extension", id: "larkx", manager: "work" }}
+        onSwitchAssistant={onSwitchAssistant}
+      />,
+    ));
+    await flush();
+
+    expect(host.querySelector('[data-owner-mark="work"]')).not.toBeNull();
+    const switchBtn = host.querySelector<HTMLButtonElement>('[data-testid="integration-detail-switch-assistant"]')!;
+    expect(switchBtn).not.toBeNull();
+    expect(switchBtn.textContent).toContain(t("settings-integrations.switch_assistant_integrations", { name: "Work" }));
+    expect(chosenManager()).toBeNull();
+    act(() => switchBtn.click());
+    expect(onSwitchAssistant).toHaveBeenCalledOnce();
   });
 });

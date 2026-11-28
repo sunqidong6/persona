@@ -27,6 +27,32 @@ func agyIdleRetryDelay(failures int) time.Duration {
 	return min(d, agyIdleRetryCooldownMax)
 }
 
+// agyIdleCompactMaxConcurrent bounds how many automatic idle compactions can run concurrently across a node
+// so a cold start or periodic sweep does not spawn an unbounded storm of Antigravity ACP workers at once.
+var agyIdleCompactMaxConcurrent = 2
+
+func (n *Node) tryAcquireAgyIdleSlot() bool {
+	max := agyIdleCompactMaxConcurrent
+	if max <= 0 {
+		max = 1
+	}
+	n.agyIdleMu.Lock()
+	defer n.agyIdleMu.Unlock()
+	if n.agyIdleInFlight >= max {
+		return false
+	}
+	n.agyIdleInFlight++
+	return true
+}
+
+func (n *Node) releaseAgyIdleSlot() {
+	n.agyIdleMu.Lock()
+	if n.agyIdleInFlight > 0 {
+		n.agyIdleInFlight--
+	}
+	n.agyIdleMu.Unlock()
+}
+
 func (n *Node) agyNow() time.Time {
 	n.agyIdleMu.Lock()
 	clock := n.agyIdleClock
@@ -546,11 +572,20 @@ func (n *Node) sweepAgyIdleCompactions(ctx context.Context, now time.Time) {
 		if !ready {
 			continue
 		}
+		if !n.tryAcquireAgyIdleSlot() {
+			break
+		}
 		go n.runAgyIdleCompaction(ctx, snap.host, snap.row.SessionID, int(snap.row.ContextTokens), idleFor)
 	}
 }
 
 func (n *Node) runAgyIdleCompaction(ctx context.Context, h *runtimeConn, id string, tokens int, idleFor time.Duration) {
+	handOffSlot := false
+	defer func() {
+		if !handOffSlot {
+			n.releaseAgyIdleSlot()
+		}
+	}()
 	unlock, ok := n.typing.tryLock(id)
 	if !ok {
 		return
@@ -583,7 +618,9 @@ func (n *Node) runAgyIdleCompaction(ctx context.Context, h *runtimeConn, id stri
 		return
 	}
 	n.logger.Printf("agy %s: idle %s with %d tokens (>= %d), auto-compacting", id, idleFor.Round(time.Second), tokens, policy.ContextTokens)
+	handOffSlot = true
 	go func() {
+		defer n.releaseAgyIdleSlot()
 		<-compaction.done
 		if failure := compaction.failureMessage(); failure != "" {
 			n.recordAgyIdleFailure(h, id, n.agyNow(), token, prevAttempted, prevLastAttempt)
