@@ -399,6 +399,7 @@ type Node struct {
 	// agentsGen numbers each merge of hostAgents as it is taken; agentsCommitted is the newest one written into agents. A
 	// merge gives way only to a newer one already written, never to one still running (#17826).
 	hostAgents      map[string][]host.Agent
+	traexEvidence   map[string]traexHostEvidence // same host snapshots, retained across partial refreshes
 	hostSnapSeq     map[string]uint64
 	hostLayoutSeq   map[string]uint64
 	hostAgentsSeq   map[string]uint64

@@ -185,7 +185,10 @@ type Service struct {
 	// listen; nil: none.
 	heard ownerHeard
 	// humanSent: the messages a person's own app sent, as the hub vouched (secret_handoff.go).
-	humanSent      humanSends
+	humanSent humanSends
+	// originDevices tracks the hub-authenticated paired device ID of the latest user turn per conversation
+	// (connector_context.go).
+	originDevices  conversationOriginDevices
 	storeApprovals storeApprovals
 	ownerWaits     ownerActionWaits
 	routineChecks  routineCheckApprovalBook
@@ -837,6 +840,11 @@ func (s *Service) call(ctx context.Context, device, method string, params, out a
 		}
 	}
 	if p, ok := params.(map[string]any); ok && method == DeviceAssistantSend {
+		if id, _ := p["session_id"].(string); id != "" {
+			// Manager-initiated turns into an existing conversation (relays, scheduled runs, etc.) never originate
+			// from a user device; clear any prior human turn's origin device before dispatch.
+			s.clearConversationOriginDevice(id)
+		}
 		// The node reads a missing is_main as false, and is_main is part of what a process runs: a relay into the main
 		// conversation (deliverRelay) without it started that conversation, or restarted it when idle, on the ordinary
 		// compaction limits (#3028). Only this manager knows which conversation is main; what a sender set stands.
