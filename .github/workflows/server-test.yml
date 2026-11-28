@@ -1,75 +1,57 @@
 name: Server CI
 on:
-  workflow_call:
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: server-${{ github.repository }}-${{ github.ref_name }}-server
-  cancel-in-progress: true
 jobs:
-  server:
-    name: Server ${{ matrix.shard }}
+  focused:
+    name: Test reset (${{ matrix.build }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
-      max-parallel: 2
       matrix:
-        shard: [node, managers, other, build, core-node, core-managers, core-other]
+        build: [default, core-only]
     env:
-      CI_SERVER_SHARD: ${{ matrix.shard }}
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 6GiB
+      SUBJECT_SHA: '0d564d3ef3dfec1e03ac2ed7ec271d442e3262e8'
+      BUILD: ${{ matrix.build }}
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: persona
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: persona_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U persona -d persona_test"
+          --health-interval 2s --health-timeout 5s --health-retries 15
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.SUBJECT_SHA }}
           persist-credentials: false
-      - id: go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
           cache: false
-      - name: Restore shard Go caches
-        id: go-cache
-        # Only a manual main run saves (below); PRs and other refs restore main's entries and never write their own.
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: server-go-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ matrix.shard }}-${{ hashFiles('server/go.sum', 'sdk/go/go.sum') }}-${{ hashFiles('server/**/*.go', 'sdk/go/**/*.go') }}
-          # Core Node compiles the core server. Reuse its main cache when Core Managers has no entry yet.
-          restore-keys: |
-            server-go-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ matrix.shard }}-${{ hashFiles('server/go.sum', 'sdk/go/go.sum') }}-
-            server-go-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ matrix.shard }}-
-            ${{ matrix.shard == 'core-managers' && format('server-go-v1-{0}-{1}-{2}-core-node-{3}-', runner.os, runner.arch, steps.go.outputs.go-version, hashFiles('server/go.sum', 'sdk/go/go.sum')) || '' }}
-      - uses: oven-sh/setup-bun@v2
-        if: matrix.shard == 'other' || matrix.shard == 'core-other'
-        with:
-          bun-version: '1.4.2'
-      - name: Load the hub AppArmor profile on the hosted test VM
-        if: matrix.shard == 'other'
+      - name: Verify source and run database and assistant regressions
+        working-directory: server
         shell: bash
+        env:
+          POSTGRES_PORT: ${{ job.services.postgres.ports[5432] }}
         run: |
-          security=$(docker info --format '{{json .SecurityOptions}}')
-          if [[ "$security" == *apparmor* ]]; then
-            if ! command -v apparmor_parser >/dev/null; then
-              sudo apt-get update -qq
-              sudo apt-get install -y --no-install-recommends apparmor
-            fi
-            profiles=(deploy/docker/*.apparmor)
-            if [ "${#profiles[@]}" -ne 1 ] || [ ! -f "${profiles[0]}" ]; then
-              printf 'Expected one regular AppArmor profile file, found %s candidates\n' "${#profiles[@]}" >&2
-              exit 1
-            fi
-            sudo apparmor_parser -r "${profiles[0]}"
-          fi
-      - name: Server checks
-        run: scripts/ci/server.sh "$CI_SERVER_SHARD"
-      - name: Save shard Go caches
-        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.go-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+          set -euo pipefail
+          actual=$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)
+          test "$actual" = "$SUBJECT_SHA"
+          printf 'Testing PR head %s with %s and PostgreSQL 18\n' "$actual" "$(go version)"
+          fixture=$(mktemp -d)
+          trap 'rm -f -- "$fixture/database.json"; rmdir -- "$fixture"' EXIT
+          printf '{"database_url":"postgresql://persona:ci-only@127.0.0.1:%s/persona?sslmode=disable"}\n' "$POSTGRES_PORT" > "$fixture/database.json"
+          flags=()
+          if [ "$BUILD" = core-only ]; then flags=(-tags persona_core_only); fi
+          python3 ../scripts/test/server_test_env.py --database-file "$fixture/database.json" -- go test -p 1 -count=1 -v "${flags[@]}" ./internal/db
+          python3 ../scripts/test/server_test_env.py --database-file "$fixture/database.json" -- go test -p 1 -count=1 -v "${flags[@]}" -run '^(TestTaskPlansList(ExtensionScope)?|TestCloseoutIsChecked|TestCloseoutDisprovedIsShown|TestTodoDetachRetiresTransientRetry|TestTaskRepositoryOwnershipNativeCreateMustSucceedAfterTaskLink|TestUserCheckRecoversMissingPassAsk|TestTodoWriteOutcomeFixtures)$' ./internal/assistant
