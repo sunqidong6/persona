@@ -53,6 +53,16 @@ jobs:
           "$swift_bin/plutil" -help >/dev/null
           echo "$swift_bin" >> "$GITHUB_PATH"
       - name: Install workflow validator
-        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+        shell: bash
+        run: |
+          version=1.7.12
+          archive="actionlint_${version}_linux_amd64.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl --fail --silent --show-error --location --retry 3 --max-time 60 \
+            --output "$archive" "https://github.com/rhysd/actionlint/releases/download/v${version}/$archive"
+          printf '%s  %s\n' '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8' "$archive" | sha256sum --check
+          mkdir -p actionlint-bin
+          tar -xzf "$archive" -C actionlint-bin actionlint
+          printf '%s\n' "$RUNNER_TEMP/actionlint-bin" >> "$GITHUB_PATH"
       - name: Scripts and docs checks
         run: scripts/ci/scripts.sh
