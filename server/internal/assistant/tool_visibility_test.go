@@ -390,12 +390,16 @@ func TestToolVisibilityReconnectOrdersUpdatedAndOmitsExtensionHelloPolicy(t *tes
 		s.toolVisibilityDecision(ctx, "mac", "chat", false).Allows("resource_status") {
 		t.Fatal("reconnect and update did not publish the latest hello and policy in order")
 	}
-	for range 2 {
+	for _, owner := range []string{"second", "updated"} {
 		select {
 		case raw := <-ext.payloads:
 			if strings.Contains(strings.ReplaceAll(strings.ToLower(string(raw)), "_", ""), "toolvisibility") ||
 				strings.Contains(string(raw), "resource_status") {
 				t.Fatalf("extension hello carried visibility: %s", raw)
+			}
+			var hello assistantwire.Hello
+			if err := json.Unmarshal(raw, &hello); err != nil || hello.Owner != owner {
+				t.Fatalf("extension hello owner=%q, want %q (%v)", hello.Owner, owner, err)
 			}
 		case <-ctx.Done():
 			t.Fatal("extension hello was not delivered")

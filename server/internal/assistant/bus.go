@@ -331,13 +331,13 @@ func (b *BusHub) onHello(res json.RawMessage) error {
 		} else {
 			svc.refreshToolVisibility(ctx, func() bool { return true }, keep)
 		}
-		b.helloKept(conn)
 	}
 	if own, err := readOwnConfig(b.opts.ConfigFile); err == nil {
 		if err := own.validatePlacement(h); err != nil {
 			// Existing node connections survive a failed hub handshake. Keep its new
 			// restrictions before rejecting placement, so they cannot serve stale access.
 			keepHello()
+			b.helloKept(conn)
 			return err
 		}
 	}
@@ -375,6 +375,8 @@ func (b *BusHub) onHello(res json.RawMessage) error {
 			}
 		}()
 	}
+	// An update on this connection follows the hello already delivered to the managers.
+	b.helloKept(conn)
 	reported.seal()
 	if b.pendingRestart.Load() && ctx != nil {
 		go func() {
