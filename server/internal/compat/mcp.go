@@ -76,6 +76,28 @@ func CanonicalMCPToolName(name string) string {
 	return name
 }
 
+// PersonaMCPTool extracts a bare tool name from one of Persona's exact MCP namespaces.
+func PersonaMCPTool(name string) (string, bool) {
+	name = CanonicalMCPToolName(name)
+	rest, ok := strings.CutPrefix(name, "mcp__")
+	if !ok {
+		return "", false
+	}
+	server, tool, ok := strings.Cut(rest, "__")
+	if !ok || tool == "" || !IsMCPServer(server) {
+		return "", false
+	}
+	return Tool(tool), true
+}
+
+// MCPToolIdentity also accepts bare names as used on the wire. Other namespaces keep their full name.
+func MCPToolIdentity(name string) string {
+	if tool, ok := PersonaMCPTool(name); ok {
+		return tool
+	}
+	return Tool(name)
+}
+
 func CodexMCPAliases(args []string) []string {
 	out := append([]string(nil), args...)
 	for i := 0; i+1 < len(args); i++ {

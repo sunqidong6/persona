@@ -212,9 +212,13 @@ func (s *Service) guardTools(ctx context.Context, machine, session string, tools
 
 // ToolsFor is the assistant's own tool list for one conversation.
 func (s *Service) ToolsFor(ctx context.Context, machine, session string) []proto.Tool {
+	visibility := s.toolVisibilityDecision(ctx, machine, session, true)
+	if visibility.Mode == assistantwire.ToolVisibilityFailClosed {
+		return []proto.Tool{}
+	}
 	tools := append(s.Tools(ctx), s.healthTools(ctx, machine, session)...)
 	tools = append(tools, s.externalSourceTools(ctx, machine, session)...)
-	return append(s.guardTools(ctx, machine, session, tools), s.spaceTools(ctx, machine, session)...)
+	return visibility.Filter(append(s.guardTools(ctx, machine, session, tools), s.spaceTools(ctx, machine, session)...))
 }
 
 // rejectDuplicateGuardKeys validates every object occurrence before RawMessage decoding can discard an earlier

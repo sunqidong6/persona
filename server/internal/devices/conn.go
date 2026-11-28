@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/nodeproto"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
@@ -305,6 +306,14 @@ func (m *Machine) establishViaOnce(ctx context.Context, p *nodePath, via string,
 	}
 	peer.OnLost = func(err error) { m.resumeConn(c, err) } // a node that keeps it: resume.go
 	peer.OnRequest = func(ctx context.Context, method string, params json.RawMessage) (any, error) {
+		if method == assistantwire.NodeMCPTools {
+			m.mu.Lock()
+			connected := m.peer == peer
+			m.mu.Unlock()
+			if !connected {
+				ctx = assistantwire.WithConnectingDiscovery(ctx)
+			}
+		}
 		if method == "state.load" {
 			var barrier struct {
 				RestartBarrier *bool `json:"restart_barrier"`
@@ -358,7 +367,7 @@ func (m *Machine) establishViaOnce(ctx context.Context, p *nodePath, via string,
 	// The engine first. An explicit reload refusal or closed handshake is retried; old nodes keep their fallback.
 	err = m.useEngine(ictx, peer)
 	if !handshakeInterrupted(err) {
-		err = peer.Call(ictx, "node.info", nodeproto.NodeInfoQuery{ManagerFeatures: []string{nodeproto.SourcePermissions}}, &c.info)
+		err = peer.Call(ictx, "node.info", nodeproto.NodeInfoQuery{ManagerFeatures: []string{nodeproto.SourcePermissions, nodeproto.ToolVisibility}}, &c.info)
 	}
 	if off := m.lanesOff(); err == nil && nodeHas(c.info, nodeproto.NodeLanes) && !off.IsZero() {
 		m.d.logf("[%s] lanes over %s: not asked until %s (frames broke this computer's connections)", m.cfg.ID, via, off.Format(time.TimeOnly))

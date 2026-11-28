@@ -5,13 +5,17 @@ import "net"
 // putMCPCallerCwd attests only the launch directory of a process this node owns.
 // A session name, runtime row, hook cwd or tool argument cannot supply it.
 func (n *Node) putMCPCallerCwd(c net.Conn, params map[string]any, session string) {
-	pid, err := peerPID(c)
-	if err != nil {
-		return
-	}
-	if cwd := n.mcpCallerCwdIn(lineage(pid, parentPID), session); cwd != "" {
+	if cwd := n.mcpCallerCwd(c, session); cwd != "" {
 		params["caller_cwd"] = cwd
 	}
+}
+
+func (n *Node) mcpCallerCwd(c net.Conn, session string) string {
+	pid, err := peerPID(c)
+	if err != nil {
+		return ""
+	}
+	return n.mcpCallerCwdIn(lineage(pid, parentPID), session)
 }
 
 func (n *Node) mcpCallerCwdIn(pids []int, session string) string {

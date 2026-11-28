@@ -2662,6 +2662,25 @@ contains no storage error, target, tool name, arguments, policy or credential.
 
 Layer / preview and push-layer integration are follow-up work, not part of this contract.
 
+## MCP tool visibility
+
+`GET /api/v1/assistant/tool-visibility` reads the selected manager's policy and `PUT` replaces the complete
+`tool_visibility` document. Both use full credentials. See
+[MCP tool visibility for operators](../assistant/assistant.md#mcp-tool-visibility-for-operators) for policy syntax.
+
+On `mcp.tools`, a node can send `with_visibility: true` to receive `tool_visibility` with its list or revision
+reply. The decision carries a mode (`open`, `check` or `fail_closed`) and the effective allowlist and denylist when
+applicable. `visibility_only: true` returns the call decision without building a catalog. The manager advertises this
+contract in `node.info`'s `manager_features` as `tool_visibility`. Nodes reuse an attributed `open` reply while its
+connection and discovery epoch stay current. They recheck `check` and `fail_closed` before local execution.
+Registration without a session ID yields schemas without a reusable call decision.
+
+Before replacing the stored policy the manager sends `mcp.visibility.invalidate {}` to connected nodes. Each reply
+acknowledges that the local discovery epoch has advanced. Responses started in an earlier epoch are discarded.
+The manager holds discovery closed during invalidation and publication. A resumed node transport also drops its
+cached decisions. Manager hello and `manager.updated` refresh policy behind the same invalidation boundary, and
+the extension manager's hello omits the policy document.
+
 ## External source bindings
 
 Owners can opt into connecting external updates to directions and to-dos. These routes use full credentials and the

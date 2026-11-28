@@ -16,8 +16,7 @@ func TestLeaderToolWatchRechecksLatePaneIdentity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			raw, _ := json.Marshal(map[string]string{"revision": "revision", "session": tc.previous})
 			got := mcpToolsParams(raw, tc.current, false, true)
-			revision, _ := got["revision"].(string)
-			if revision != tc.want || got["session_id"] != tc.current || got["assistant"] != false || got["guest"] != true {
+			if got.Revision != tc.want || got.SessionID.String() != tc.current || got.Assistant || !got.Guest {
 				t.Fatalf("watch changed caller identity or reused a stale cursor: %v", got)
 			}
 		})

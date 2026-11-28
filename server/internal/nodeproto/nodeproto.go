@@ -368,6 +368,9 @@ const (
 // SourceSend is emitted only by a devices manager holding source provenance.
 const SourceSend = "session.source_send"
 
+// ToolVisibility advertises that the manager sends visibility decisions when a node requests them.
+const ToolVisibility = "tool_visibility"
+
 // NodeInfoQuery is sent by the manager during connection setup.
 type NodeInfoQuery struct {
 	ManagerFeatures []string `json:"manager_features,omitempty"`

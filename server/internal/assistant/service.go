@@ -95,6 +95,7 @@ type Options struct {
 
 // Service is the assistant. It implements Handler.
 type Service struct {
+	toolVisibility   toolVisibilityBook
 	blockerReconcile todoBlockerReconciler
 	mergeTrain       mergeTrainCoordinator
 	// modules are the feature modules loaded (modules.go); nil, none.
@@ -541,6 +542,7 @@ func New(o Options) *Service {
 	s.directionOutsideRoutes()
 	s.dispatchPolicyRoutes() // dispatch_policy_routes.go
 	s.dispatchGuardRoutes()  // dispatch_guard.go
+	s.toolVisibilityRoutes()
 	s.startPresetRoutes()
 	s.startDefaultsRoutes()    // start_defaults_routes.go
 	s.machineResourcesRoutes() // machine_resources_routes.go

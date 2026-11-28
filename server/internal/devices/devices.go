@@ -891,6 +891,22 @@ func (d *Devices) List() []Summary {
 	return out
 }
 
+// ConnectedNodeIDs lists the nodes with a live transport, including those that have yet to report sessions.
+func (d *Devices) ConnectedNodeIDs() []string {
+	var ids []string
+	for _, m := range d.machinesNow() {
+		m.mu.Lock()
+		peer, id := m.peer, m.cfg.ID
+		m.mu.Unlock()
+		if peer != nil {
+			if _, live := peer.TransportEpoch(); live {
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids
+}
+
 // summaryOf is one machine as List has it.
 func (d *Devices) summaryOf(m *Machine) Summary {
 	m.mu.Lock()

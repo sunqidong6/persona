@@ -19,6 +19,7 @@ import (
 
 	"github.com/nwverse/persona/server/internal/acceptloop"
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/compat"
 	"github.com/nwverse/persona/server/internal/host"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/identity"
@@ -236,7 +237,6 @@ func (n *Node) serveSock(ctx context.Context, c net.Conn) {
 			resp = n.scopedA2AMCP(ctx, req)
 			break
 		}
-		var res map[string]any
 		// The assistant's only when the node says so too (clicall.go mcpSession).
 		session, assistant, rt := n.mcpSession(c, req)
 		if assistant {
@@ -248,34 +248,31 @@ func (n *Node) serveSock(ctx context.Context, c net.Conn) {
 		// A guest's (its MCP server says so, or this node knows it is one): the hub gives it only its own tools.
 		guest := req.Guest || n.guestOf(session) != nil
 		params := mcpToolsParams(req.Input, session, assistant, guest)
-		n.putMCPCallerCwd(c, params, session)
+		params.CallerCwd = n.mcpCallerCwd(c, session)
 		// A supervision round's process asks for its narrower set (assistant_round.go); a manager that does not know
 		// it gives the whole list.
-		if req.ToolSet != "" {
-			params["tool_set"] = req.ToolSet
-		}
-		if err := n.peer.Call(ctx, "mcp.tools", params, &res); err != nil {
+		params.ToolSet = req.ToolSet
+		res, err := n.discoverMCP(ctx, params)
+		if err != nil {
 			resp = map[string]any{"tools": []proto.Tool{}, "error": err.Error()}
 		} else {
-			if res == nil {
-				res = map[string]any{}
-			}
 			// A runtime's assistant conversation (Antigravity) lists its tools here, through `personad mcp`, not on the
 			// runtime socket: the command gates' tools are its own, as there (runtimehost.go). Claude Code's assistant
 			// runs those commands with Bash, through its hook. Only a full list: an unchanged one keeps what was sent.
 			// shortcut: a gate that comes or goes while the hub's tools stay the same shows at their next change.
-			if tools, ok := res["tools"].([]any); ok && rt != nil && !guest && req.ToolSet == "" {
-				for _, g := range n.gateTools() {
-					tools = append(tools, g)
-				}
-				res["tools"] = tools
+			if res.Tools != nil && rt != nil && !guest && req.ToolSet == "" && res.Error == "" {
+				res.Tools = append(res.Tools, discoveryVisibility(res).Filter(n.gateTools())...)
 			}
-			res["session"] = session
-			resp = res
+			res.ToolVisibility = nil // decision metadata stays between the manager and node
+			resp = struct {
+				assistantwire.MCPToolsReply
+				Session string `json:"session"`
+			}{res, session}
 		}
 	case "cli.call": // personad tg: the node, not the caller, says whether it is the assistant (clicall.go)
 		resp = n.cliCall(ctx, c, req)
 	case "mcp.call":
+		req.Name = compat.MCPToolIdentity(req.Name)
 		if req.A2AToken != "" {
 			resp = n.scopedA2AMCP(ctx, req)
 			break
@@ -306,12 +303,19 @@ func (n *Node) serveSock(ctx context.Context, c net.Conn) {
 		// socket (runtimehost.go): through the gate (larkCheck), then the skill's script.
 		if rt != nil && !guest && req.ToolSet == "" && n.runtimeAssistantChat(rt, sid) && n.runtimeWorkerCaller(c, rt, sid) {
 			if g := n.gateTool(req.Name); g != nil {
+				if !n.localToolVisible(ctx, sid, req.Name) {
+					resp = toolVisibilityDenied()
+					break
+				}
 				resp = n.assistantGateTool(ctx, g, sid, req.Args)
 				break
 			}
 		}
 		params := map[string]any{"name": req.Name, "args": req.Args, "session_id": sid,
 			"assistant": assistant, "guest": guest}
+		if sid == "" && viewSession != "" {
+			params["visibility_session_id"] = viewSession
+		}
 		n.putMCPCallerCwd(c, params, sid)
 		n.putSourcePermission(c, params, sid, req.Name, req.Args)
 		if origin := n.assistantOrigin(sid); origin != "" {
@@ -486,6 +490,14 @@ func (n *Node) handleHook(ctx context.Context, req sockRequest) (any, error) {
 	n.rememberTranscript(in)
 	if !req.Resume { // the event was reported on the first attempt
 		n.notifyHookEvent(ctx, req, in, stopSig)
+	}
+	if in.HookEventName == "PreToolUse" {
+		if name, ok := compat.PersonaMCPTool(in.ToolName); ok {
+			session := n.canonicalAssistantSession(in.SessionID)
+			if !n.localToolVisible(ctx, session, name) {
+				return preToolDecision("deny", i18n.Err("assistant-tool_visibility.refused").Error()), nil
+			}
+		}
 	}
 	// Every Bash call of every agent waits on this hook. Only the assistant's go to larkGate, and another agent's
 	// needs only the cua-driver check below: one that does not name cua-driver goes on here, before the card's

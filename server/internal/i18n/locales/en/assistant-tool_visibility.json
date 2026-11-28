@@ -1,0 +1,6 @@
+{
+  "invalid": "Provide a tool visibility policy.",
+  "owner_only": "Only a device with full access can manage tool visibility.",
+  "refused": "This tool is unavailable in this conversation.",
+  "unavailable": "Tool visibility settings could not be applied. Try again."
+}

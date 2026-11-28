@@ -40,6 +40,7 @@ func (d *mirrorDevices) Request(context.Context, string, json.RawMessage) (any, 
 func (d *mirrorDevices) Event(string, json.RawMessage) bool     { return false }
 func (d *mirrorDevices) Handler(next http.Handler) http.Handler { return next }
 func (d *mirrorDevices) Has(string) bool                        { return false } // node calls go through the hub, as before
+func (d *mirrorDevices) ConnectedNodeIDs() []string             { return nil }   // this manager owns no direct node peers
 func (d *mirrorDevices) SetKeep(map[string][]string)            {}
 func (d *mirrorDevices) Watched(string, string) bool            { return false } // no suggestions in these tests
 

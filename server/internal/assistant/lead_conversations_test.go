@@ -1233,6 +1233,7 @@ func newNoticeBus(t *testing.T, s *Service) *noticeBus {
 
 func (n *noticeBus) hello() {
 	n.t.Helper()
+	n.b.client.OnConnecting()
 	if err := n.b.onHello(json.RawMessage(`{}`)); err != nil {
 		n.t.Fatal(err)
 	}

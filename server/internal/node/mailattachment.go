@@ -40,6 +40,9 @@ type mailAttachmentArgs struct {
 // saveMailAttachment is the tool for this node's caller: session is its conversation, assistant and guest what the
 // caller is, passed on so the manager can check them as it does an mcp.call.
 func (n *Node) saveMailAttachment(ctx context.Context, args json.RawMessage, session string, assistant, guest bool) proto.ToolResult {
+	if !n.localToolVisible(ctx, session, toolMailSaveAttachment) {
+		return toolVisibilityDenied()
+	}
 	return saveMailAttachment(ctx, mailAttachmentRoot(), args, func(ctx context.Context, a mailAttachmentArgs) (proto.MailAttachment, error) {
 		var out proto.MailAttachment
 		if n.peer == nil {

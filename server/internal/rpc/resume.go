@@ -117,6 +117,22 @@ func (p *Peer) Lost() bool {
 	return p.resume != nil && p.resume.lost
 }
 
+// TransportEpoch identifies the transport in use. The number changes on resume, even when an
+// observer missed the loss. Neither a closed peer nor a peer waiting for a resume is live.
+func (p *Peer) TransportEpoch() (epoch uint64, live bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	select {
+	case <-p.closed:
+		return 0, false
+	default:
+	}
+	if p.resume == nil {
+		return 0, true
+	}
+	return p.resume.gen, !p.resume.lost
+}
+
 // Lose takes the transport in use for dead (pings unanswered, nothing written for long) on a connection that can
 // resume: the peer waits for a resume, as when the transport fails, and OnLost is told err. false: it cannot (or it is
 // closed), and the caller closes the peer as it always did. Lost already: true, nothing more happens.

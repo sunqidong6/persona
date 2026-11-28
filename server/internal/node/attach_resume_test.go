@@ -31,6 +31,7 @@ type residentAttach struct {
 	ctx   context.Context
 	extra chan net.Conn
 	made  atomic.Int32
+	node  atomic.Pointer[Node]
 	done  chan error
 	hub   *rpc.Peer
 	first net.Conn // the manager's end of the first transport
@@ -40,6 +41,12 @@ type residentAttach struct {
 }
 
 func startResidentAttach(t *testing.T) *residentAttach {
+	return startResidentAttachWithRequests(t, func(context.Context, string, json.RawMessage) (any, error) {
+		return struct{}{}, nil
+	})
+}
+
+func startResidentAttachWithRequests(t *testing.T, onRequest rpc.Handler) *residentAttach {
 	home := shortHome(t)
 	t.Setenv("PERSONA_HOME", filepath.Join(home, ".persona"))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -51,6 +58,7 @@ func startResidentAttach(t *testing.T) *residentAttach {
 			r.made.Add(1)
 			n, err := New("test")
 			if err == nil {
+				r.node.Store(n)
 				n.logger.SetOutput(io.Discard)
 				t.Cleanup(n.starts.close)
 			}
@@ -64,7 +72,7 @@ func startResidentAttach(t *testing.T) *residentAttach {
 	hub.EnableLanes(nodeproto.ControlLane, nodeproto.BulkLane)
 	hub.EnableResume(5 * time.Second)
 	hub.OnLost = func(err error) { r.lost <- err }
-	hub.OnRequest = func(context.Context, string, json.RawMessage) (any, error) { return map[string]any{}, nil }
+	hub.OnRequest = onRequest
 	hub.OnEvent = r.hooks.record
 	go func() { _ = hub.Serve(ctx, slowReader{m1}) }()
 	r.hub = hub

@@ -75,13 +75,8 @@ func (n *Node) scopedA2AMCP(ctx context.Context, req sockRequest) any {
 		if owner == nil {
 			session = ""
 		}
-		var res struct {
-			Tools     []proto.Tool `json:"tools"`
-			Error     string       `json:"error"`
-			Revision  string       `json:"revision"`
-			Unchanged bool         `json:"unchanged"`
-		}
-		if err := n.peer.Call(ctx, "mcp.tools", mcpToolsParams(req.Input, session, false, guest), &res); err != nil || res.Error != "" {
+		res, err := n.discoverMCP(ctx, mcpToolsParams(req.Input, session, false, guest))
+		if err != nil || res.Error != "" {
 			return map[string]any{"error": "A2A is temporarily unavailable"}
 		}
 		tools := slices.DeleteFunc(res.Tools, func(t proto.Tool) bool { return !assistantwire.IsA2ATool(t.Name) })

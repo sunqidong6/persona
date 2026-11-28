@@ -91,6 +91,10 @@ func eventKey(event string) string {
 // waits at a time, the newest text replacing the older. What a long line does with the others is said above
 // (eventsRoom): none of those that must each be taken is lost or passed by a later one until eventsMost wait.
 func (b *BusHub) queueEvent(event string, params json.RawMessage) {
+	b.queueEventFrom(b.conns.Load(), event, params)
+}
+
+func (b *BusHub) queueEventFrom(conn uint64, event string, params json.RawMessage) {
 	if event == assistantwire.EventSessionDelta {
 		var p struct {
 			MachineID string `json:"machine_id"`
@@ -110,7 +114,7 @@ func (b *BusHub) queueEvent(event string, params json.RawMessage) {
 		}
 		params = json.RawMessage(`"` + key + `"`) // the key: the text is taken when it comes up (takeDelta)
 	}
-	ev := busEvent{name: event, params: params, conn: b.conns.Load()}
+	ev := busEvent{name: event, params: params, conn: conn}
 	if b.pending.Load() >= eventsRoom {
 		ev.key = eventKey(event)
 	}

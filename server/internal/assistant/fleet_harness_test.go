@@ -159,6 +159,18 @@ func (d *fleetDevs) List() []devices.Summary {
 	return out
 }
 
+func (d *fleetDevs) ConnectedNodeIDs() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var ids []string
+	for _, id := range d.order {
+		if !d.machines[id].away {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 func (d *fleetDevs) MachineResources(string) (*proto.Machine, *proto.MetricSample, *bool) {
 	return nil, nil, nil
 }

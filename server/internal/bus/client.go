@@ -47,6 +47,8 @@ type Client struct {
 	HelloMethod string
 	HelloParams func() any
 	OnHello     func(result json.RawMessage) error
+	// OnConnecting supplies a connection-specific event handler before the handshake starts.
+	OnConnecting func() rpc.EventHandler
 
 	// OnRequest answers the hub's calls, OnEvent takes its one-way events (nil: calls fail, events are dropped).
 	OnRequest rpc.Handler
@@ -262,6 +264,9 @@ func (c *Client) session(ctx context.Context) (helloed bool, err error) {
 		c.logf("bus: rejected outgoing %s %s: %d bytes (limit %d)", kind, op, size, max)
 	}
 	p.OnRequest, p.OnEvent, p.Cancels = c.OnRequest, c.OnEvent, c.Cancels
+	if c.OnConnecting != nil {
+		p.OnEvent = c.OnConnecting()
+	}
 	served := make(chan error, 1)
 	go func() { served <- p.Serve(sctx, conn) }()
 

@@ -38,6 +38,8 @@ type Devices interface {
 	// another one absorbed: that one), its sessions as its node listed them, when its node's connection began, the
 	// token usage.
 	List() []devices.Summary
+	// ConnectedNodeIDs excludes a warm or suspended connection that cannot receive a call now.
+	ConnectedNodeIDs() []string
 	// Summary is List's entry for the machine id names (Canonical(id)'s), false when List has none: one machine,
 	// without building the others.
 	Summary(id string) (devices.Summary, bool)

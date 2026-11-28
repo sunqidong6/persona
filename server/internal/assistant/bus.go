@@ -94,7 +94,7 @@ type BusHub struct {
 	// would be missing — they wait for it (waitHello).
 	helloed   chan struct{}
 	helloOnce sync.Once
-	// keptConn is the connection (conns as onHello counted it) whose hello's answer was kept last, and keptNext is
+	// keptConn is the connection (conns as OnConnecting counted it) whose hello's answer was kept last, and keptNext is
 	// closed when a later one's is (waitHelloAfter); both guarded by mu.
 	keptConn uint64
 	keptNext chan struct{}
@@ -212,23 +212,26 @@ func NewBusHub(o BusOptions) *BusHub {
 			}
 			return params
 		},
+		OnConnecting: func() rpc.EventHandler {
+			conn := b.conns.Add(1)
+			return func(event string, params json.RawMessage) {
+				// Credential revocation goes to both managers and can write to their stores.
+				if event == bus.EventCredentialRevoked {
+					b.queueEventFrom(conn, event, params)
+					return
+				}
+				if o.Devices != nil && o.Devices.Event(event, params) {
+					return // the computers' (devices.go), in the order they came
+				}
+				if o.Extensions != nil && o.Extensions.Event(event, params) {
+					return // the extensions' (extensions.go)
+				}
+				b.queueEventFrom(conn, event, params)
+			}
+		},
 		OnHello: b.onHello,
 		// A node's tool call that its caller stopped waiting for ends at the hub too (fleet_tools.go).
 		OnRequest: b.answer,
-		OnEvent: func(event string, params json.RawMessage) {
-			// Credential revocation goes to both managers and can write to their stores.
-			if event == bus.EventCredentialRevoked {
-				b.queueEvent(event, params)
-				return
-			}
-			if o.Devices != nil && o.Devices.Event(event, params) {
-				return // the computers' (devices.go), in the order they came
-			}
-			if o.Extensions != nil && o.Extensions.Event(event, params) {
-				return // the extensions' (extensions.go)
-			}
-			b.queueEvent(event, params)
-		},
 	}
 	return b
 }
@@ -313,25 +316,32 @@ func (b *BusHub) CredentialRevoked(ctx context.Context, id string) (bool, error)
 // onHello keeps the hub's answer to manager.hello. A new connection: the hub shows nothing of the assistant until it
 // reports the whole of it again.
 func (b *BusHub) onHello(res json.RawMessage) error {
-	conn := b.conns.Add(1) // what the hub's events say of the hub is that connection's (busEvent.conn)
+	conn := b.conns.Load()
 	var h Hello
 	if err := json.Unmarshal(res, &h); err != nil {
 		return err
+	}
+	b.mu.Lock()
+	svc, ctx := b.svc, b.ctx
+	b.mu.Unlock()
+	keep := func() { h = b.setHello(h) }
+	keepHello := func() {
+		if svc == nil {
+			keep()
+		} else {
+			svc.refreshToolVisibility(ctx, func() bool { return true }, keep)
+		}
+		b.helloKept(conn)
 	}
 	if own, err := readOwnConfig(b.opts.ConfigFile); err == nil {
 		if err := own.validatePlacement(h); err != nil {
 			// Existing node connections survive a failed hub handshake. Keep its new
 			// restrictions before rejecting placement, so they cannot serve stale access.
-			b.setHello(h)
-			b.helloKept(conn)
+			keepHello()
 			return err
 		}
 	}
-	h = b.setHello(h)
-	b.helloKept(conn)
-	b.mu.Lock()
-	svc, ctx := b.svc, b.ctx
-	b.mu.Unlock()
+	keepHello()
 	// The outbox waits until what follows has reported the manager's state on this connection (its extensions, its
 	// cards): a card's push needs the card, an extension's live update the extension (outbox.go).
 	reported := b.newReport()
@@ -1120,8 +1130,16 @@ func (b *BusHub) event(ctx context.Context, ev busEvent) error {
 		if err := decode(&h); err != nil {
 			return err
 		}
-		before := b.helloNow().Assistant.Machines
-		h = b.setHello(h)
+		if ev.conn != 0 && !b.waitHelloAfter(ctx, ev.conn-1) {
+			return nil
+		}
+		var before []string
+		if !s.refreshToolVisibility(ctx, func() bool { return ev.conn == 0 || ev.conn == b.conns.Load() }, func() {
+			before = b.helloNow().Assistant.Machines
+			h = b.setHello(h)
+		}) {
+			return nil // a later connection's hello supersedes this update
+		}
 		if e := b.opts.Extensions; e != nil { // the extensions go by the same sections (kb off, the owner's name)
 			if mine, err := json.Marshal(h); err == nil {
 				e.Hello(mine)

@@ -118,6 +118,45 @@ The manager verifies the calling machine for `mcp.tools`, `mcp.call`, `assistant
 
 Changing trust does not erase context already delivered to a computer or terminate an existing process. New personal-data tool calls and Inbox deliveries are refused; ordinary Agent supervision and question / approval cards remain available.
 
+## MCP tool visibility for operators
+
+Persona exposes the tools each conversation already has permission to use by default. A full-access device can use
+`GET /api/v1/assistant/tool-visibility` to read the selected manager's policy and `PUT` to replace it. This operator
+setting lives in the Assistant API. Ordinary conversations require no setup.
+
+```json
+{
+  "tool_visibility": {
+    "roles": {
+      "ordinary": {"denylist": ["file_transfer"]}
+    },
+    "sessions": [
+      {
+        "machine": "example-computer",
+        "session": "example-session",
+        "allowlist": ["resource_status"],
+        "expires_at": "2035-02-01T12:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+Roles are `main`, `leader` (a direction's lead conversation), `background` (the background supervisor and its
+rounds), and `ordinary` (the remaining attributed sessions, including coding Agents). A session rule names both
+its machine and session. If both scopes apply, a tool must appear in every specified allowlist and in no denylist.
+Omitting an allowlist adds no allowlist restriction. An empty allowlist allows zero tools. An exact Persona legacy
+alias and its current name are the same tool for these checks. An expiry uses RFC 3339 and takes effect at the named
+instant. Send `{"tool_visibility":{}}` to remove the policy.
+
+The same rule covers discovery and calls, including Persona tools implemented on the node and checks in Persona's
+tool hooks. Session-less runtime discovery can register schemas early. An attributed invocation then checks its own
+session. Existing tool permissions and approvals still apply.
+
+The manager waits for active nodes to invalidate their decisions before saving changes. A failed invalidation
+returns 503 and leaves the previous policy in effect. Older nodes that report an unknown method keep their legacy
+local-tool behavior until upgraded. The manager enforces the policy on calls it handles throughout the upgrade.
+
 ## Current structure
 
 | Capability | Implementation |

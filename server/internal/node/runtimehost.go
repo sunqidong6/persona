@@ -19,10 +19,12 @@ import (
 
 	"github.com/nwverse/persona/server/internal/acceptloop"
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/compat"
 	"github.com/nwverse/persona/server/internal/osproc"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
 	"github.com/nwverse/persona/server/internal/runtimepkg"
+	"github.com/nwverse/persona/server/internal/wireids"
 )
 
 // RuntimeHost is the runtime socket (runtime.sock, runtimes.go) and the runtimes connected to it. A resident node
@@ -737,27 +739,25 @@ func (rh *RuntimeHost) request(ctx context.Context, h *runtimeConn, method strin
 			return map[string]any{"tools": []proto.Tool{}}, nil
 		}
 		assistant := p.Assistant && h.assistant()
-		var res struct {
-			Tools []proto.Tool `json:"tools"`
+		query := assistantwire.MCPToolsQuery{
+			SessionID: wireids.SessionID(p.SessionID), Assistant: assistant,
+			Guest: p.SessionID != "" && n.guestOf(p.SessionID) != nil, LeaderOnly: p.LeaderOnly, WithVisibility: true,
 		}
-		query := map[string]any{"assistant": assistant}
-		if p.SessionID != "" {
-			query["session_id"] = p.SessionID
-			query["guest"] = n.guestOf(p.SessionID) != nil
-		}
-		if p.LeaderOnly {
-			query["leader_only"] = true
-		}
-		if err := n.peer.Call(ctx, "mcp.tools", query, &res); err != nil {
+		res, err := n.discoverMCP(ctx, query)
+		if err != nil {
 			return nil, err
 		}
+		if res.Error != "" {
+			return nil, errors.New(string(res.Error))
+		}
 		if assistant && !p.LeaderOnly {
-			res.Tools = append(res.Tools, n.gateTools()...)
+			visibility := discoveryVisibility(res)
+			res.Tools = append(res.Tools, visibility.Filter(n.gateTools())...)
 			if h.remoteAgent() {
 				if p.SessionID == "" {
-					res.Tools = append(res.Tools, n.memoryTools()...)
+					res.Tools = append(res.Tools, visibility.Filter(n.memoryTools())...)
 				} else if _, ok := n.sessionAllowsMemoryTools(p.SessionID); ok {
-					res.Tools = append(res.Tools, n.memoryTools()...)
+					res.Tools = append(res.Tools, visibility.Filter(n.memoryTools())...)
 				}
 			}
 		}
@@ -767,7 +767,9 @@ func (rh *RuntimeHost) request(ctx context.Context, h *runtimeConn, method strin
 		if res.Tools == nil {
 			res.Tools = []proto.Tool{}
 		}
-		return res, nil
+		return struct {
+			Tools []proto.Tool `json:"tools"`
+		}{res.Tools}, nil
 	case "mcp.call":
 		n := rh.current()
 		if n == nil || n.peer == nil {
@@ -782,18 +784,26 @@ func (rh *RuntimeHost) request(ctx context.Context, h *runtimeConn, method strin
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, fmt.Errorf("bad mcp.call: %w", err)
 		}
+		p.Name = compat.MCPToolIdentity(p.Name)
 		if h.isDaemon() && !assistantwire.IsA2ATool(p.Name) {
 			return nil, errUnsupportedForDaemons("non-A2A tools")
 		}
 		// As the assistant only for one of the assistant's conversations that this runtime runs.
-		assistant := p.Assistant && h.assistant() && rh.reg.owns(h, p.SessionID) && n.isAssistantSession(p.SessionID)
-		if !assistant && slices.Contains(callerTools, p.Name) && !rh.reg.owns(h, p.SessionID) {
+		owned := rh.reg.owns(h, p.SessionID)
+		assistant := p.Assistant && h.assistant() && owned && n.isAssistantSession(p.SessionID)
+		if !assistant && slices.Contains(callerTools, p.Name) && !owned {
 			return proto.TextResult("Persona Agent tool requires a session owned by this runtime", true), nil
 		}
 		if p.Name == toolMailSaveAttachment { // writes on this machine (mailattachment.go)
+			if !owned && p.SessionID != "" && !n.localToolVisible(ctx, "", p.Name) {
+				return toolVisibilityDenied(), nil
+			}
 			return n.saveMailAttachment(ctx, p.Args, p.SessionID, assistant, n.guestOf(p.SessionID) != nil), nil
 		}
 		if g := n.gateTool(p.Name); assistant && g != nil {
+			if !n.localToolVisible(ctx, p.SessionID, p.Name) {
+				return toolVisibilityDenied(), nil
+			}
 			if h.remoteAgent() {
 				rh.reg.markRemote(p.SessionID)
 				n.gates().markRemote(p.SessionID)
@@ -804,10 +814,16 @@ func (rh *RuntimeHost) request(ctx context.Context, h *runtimeConn, method strin
 			if !h.remoteAgent() || !assistant {
 				return proto.TextResult("Memory tools require a remote assistant session", true), nil
 			}
+			if !n.localToolVisible(ctx, p.SessionID, p.Name) {
+				return toolVisibilityDenied(), nil
+			}
 			return n.assistantMemoryTool(ctx, p.Name, p.SessionID, p.Args), nil
 		}
 		var res json.RawMessage
 		params := map[string]any{"name": p.Name, "args": p.Args, "session_id": p.SessionID, "assistant": assistant, "guest": n.guestOf(p.SessionID) != nil}
+		if p.SessionID != "" && !owned {
+			params["visibility_unattributed"] = true
+		}
 		if origin := n.assistantOrigin(p.SessionID); origin != "" {
 			params["origin"] = origin
 		}

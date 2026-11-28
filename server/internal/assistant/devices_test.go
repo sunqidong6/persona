@@ -61,6 +61,7 @@ func (f *fakeDevices) MachineResources(string) (*proto.Machine, *proto.MetricSam
 }
 func (f *fakeDevices) List() []devices.Summary                 { return nil }
 func (f *fakeDevices) Summary(string) (devices.Summary, bool)  { return devices.Summary{}, false }
+func (f *fakeDevices) ConnectedNodeIDs() []string              { return nil }
 func (f *fakeDevices) Canonical(id string) string              { return id }
 func (f *fakeDevices) Sessions(string) ([]proto.Session, bool) { return nil, false }
 func (f *fakeDevices) AppendSessions(dst []proto.Session, _ string) ([]proto.Session, bool) {

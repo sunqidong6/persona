@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/compat"
 	"github.com/nwverse/persona/server/internal/devicewire"
+	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
+	"github.com/nwverse/persona/server/internal/wireids"
 )
 
 // ---- the nodes' events and requests ----
@@ -379,28 +382,36 @@ func (s *Service) nodeRequest(ctx context.Context, machine, method string, param
 		}
 		out, err := s.mailAttachment(ctx, machine, p)
 		return out, true, err
-	case "mcp.tools":
+	case assistantwire.NodeMCPTools:
 		ctx = withToolSet(ctx, params) // a narrower set the process asks for (supervise_round.go)
-		var p struct {
-			Assistant  bool   `json:"assistant"`
-			SessionID  string `json:"session_id"`
-			CallerCwd  string `json:"caller_cwd"`
-			Guest      bool   `json:"guest"` // the node's word that it is a guest conversation (guest.go)
-			Revision   string `json:"revision"`
-			LeaderOnly bool   `json:"leader_only"`
+		var p assistantwire.MCPToolsQuery
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, true, err
 		}
-		_ = json.Unmarshal(params, &p)
-		ctx = withNodeCallerCwd(ctx, machine, p.SessionID, p.CallerCwd)
+		session := p.SessionID.String()
+		ctx = withNodeCallerCwd(ctx, machine, session, p.CallerCwd)
+		if p.VisibilityOnly {
+			decision := s.toolVisibilityDecision(ctx, machine, session, false)
+			return assistantwire.MCPToolsReply{ToolVisibility: &decision}, true, nil
+		}
 		if p.LeaderOnly {
-			return map[string]any{"tools": s.runtimeLeaderTools(ctx, machine, p.SessionID, p.Guest)}, true, nil
+			decision := s.toolVisibilityDecision(ctx, machine, session, true)
+			out := map[string]any{"tools": decision.Filter(s.runtimeLeaderTools(ctx, machine, session, p.Guest))}
+			if p.WithVisibility && (session != "" || decision.Mode != assistantwire.ToolVisibilityOpen) {
+				out["tool_visibility"] = decision
+			}
+			return out, true, nil
 		}
-		out := s.sessionMCPToolsSince(ctx, machine, p.SessionID, p.Assistant, p.Guest, p.Revision)
+		out := s.sessionMCPToolsSince(ctx, machine, session, p.Assistant, p.Guest, p.Revision)
+		if !p.WithVisibility {
+			delete(out, "tool_visibility")
+		}
 		// Only an assistant conversation defers tools: a guest, by the node's word or by the manager's own record
 		// (guest.go), has no ToolSearch to load one with (node/assistant_guest.go). An unchanged or failed answer
 		// carries no list to mark.
 		if tools, ok := out["tools"].([]proto.Tool); ok {
-			deferring := p.Assistant && !p.Guest && !s.isGuest(ctx, machine, p.SessionID)
-			out["tools"] = s.withToolLoading(ctx, p.SessionID, tools, deferring)
+			deferring := p.Assistant && !p.Guest && !s.isGuest(ctx, machine, session)
+			out["tools"] = s.withToolLoading(ctx, session, tools, deferring)
 		}
 		return out, true, nil
 	case "mcp.call":
@@ -415,6 +426,9 @@ func (s *Service) nodeRequest(ctx context.Context, machine, method string, param
 			WaitUpdates      bool                   `json:"wait_updates"`
 			CallID           json.RawMessage        `json:"call_id"`
 			SourcePermission proto.SourcePermission `json:"source_permission"`
+			// A pane-derived caller can scope policy while preserving the connector's existing dispatch context.
+			VisibilitySessionID    wireids.SessionID `json:"visibility_session_id"`
+			VisibilityUnattributed bool              `json:"visibility_unattributed"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, true, err
@@ -423,6 +437,20 @@ func (s *Service) nodeRequest(ctx context.Context, machine, method string, param
 		ctx = devicewire.WithSourcePermission(ctx, proto.SourcePermission{})
 		if p.SourcePermission.Matches(p.SessionID, p.Name, p.Args) {
 			ctx = devicewire.WithSourcePermission(ctx, p.SourcePermission)
+		}
+		p.Name = compat.MCPToolIdentity(p.Name)
+		visibilityMachine, visibilitySession := machine, p.SessionID
+		if p.VisibilityUnattributed {
+			visibilitySession = ""
+		} else if visibilitySession == "" && p.VisibilitySessionID != "" {
+			var err error
+			visibilityMachine, visibilitySession, _, err = s.logicalCaller(ctx, machine, p.VisibilitySessionID.String())
+			if err != nil {
+				return nil, true, err
+			}
+		}
+		if err := s.toolVisibilityRefusal(ctx, visibilityMachine, visibilitySession, p.Name); err != nil {
+			return proto.TextResult(i18n.Localize(err, s.lang(ctx)), true), true, nil
 		}
 		var callID string
 		_ = json.Unmarshal(p.CallID, &callID)

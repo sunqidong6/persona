@@ -52,8 +52,9 @@ type Node struct {
 	usageDirs usageDirsOn
 
 	// Only the manager's initial node.info can negotiate source delivery on this connection.
-	managerInfoOnce sync.Once
-	sourceSend      atomic.Bool
+	managerInfoOnce       sync.Once
+	sourceSend            atomic.Bool
+	managerToolVisibility atomic.Bool
 
 	// The assistant's one memory (memory_merge.go), both under memoryMu: per project key, the other profiles' notes
 	// already merged, and when a merge that failed is tried again.
@@ -148,9 +149,10 @@ type Node struct {
 	hstart   herdrStarter   // starting herdr's server when it is not running (herdrstart.go)
 	hinstall herdrInstaller // installing herdr when there is none (herdrinstall.go)
 	// engEpoch counts engine switches (n.mu): a refresh applies its result only when no switch happened meanwhile.
-	engEpoch uint64
-	peer     *rpc.Peer
-	logger   *log.Logger
+	engEpoch       uint64
+	peer           *rpc.Peer
+	logger         *log.Logger
+	toolVisibility toolVisibilityCache
 	// hubPersonaContracts is connection-local: Attach makes a fresh Node on each reconnect.
 	hubPersonaContracts atomic.Bool
 	// hubMCPWait gates the opt-in interim local-socket lines on the authenticated hub's advertised feature.
@@ -1434,6 +1436,9 @@ func (n *Node) handleMethod(ctx context.Context, method string, params json.RawM
 	switch method {
 	case "session.attach":
 		return ok(n.attachCodex(ctx, p.SessionID))
+	case assistantwire.NodeMCPVisibilityInvalidate:
+		n.invalidateToolVisibility()
+		return struct{}{}, nil
 	case "ping": // the hub checking a tailcat connection is alive (its userspace TCP has no keepalive)
 		return map[string]any{}, nil
 	case "node.info":
@@ -1441,6 +1446,7 @@ func (n *Node) handleMethod(ctx context.Context, method string, params json.RawM
 			var p nodeproto.NodeInfoQuery
 			if json.Unmarshal(params, &p) == nil {
 				n.sourceSend.Store(slices.Contains(p.ManagerFeatures, nodeproto.SourcePermissions))
+				n.managerToolVisibility.Store(slices.Contains(p.ManagerFeatures, nodeproto.ToolVisibility))
 			}
 		})
 		return n.info(ctx), nil

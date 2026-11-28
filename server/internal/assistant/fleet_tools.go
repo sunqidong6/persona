@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/compat"
 	"github.com/nwverse/persona/server/internal/connector"
 	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/prompts"
@@ -124,8 +125,15 @@ func (s *Service) sessionMCPTools(ctx context.Context, machine, session string, 
 
 // Discovery with a cursor must distinguish a denied/empty list from a failed
 // state read. Otherwise the failed list is cached until an unrelated link changes.
-func (s *Service) sessionMCPToolsChecked(ctx context.Context, machine, session string, assistant, guestHint bool) (result []proto.Tool, resultErr error) {
-	defer func() { result = localizedMCPTools(result, s.toolLanguage(ctx)) }()
+func (s *Service) sessionMCPToolsChecked(ctx context.Context, machine, session string, assistant, guestHint bool) ([]proto.Tool, error) {
+	return s.sessionMCPToolsVisible(ctx, machine, session, assistant, guestHint, s.toolVisibilityDecision(ctx, machine, session, true))
+}
+
+func (s *Service) sessionMCPToolsVisible(ctx context.Context, machine, session string, assistant, guestHint bool, visibility assistantwire.ToolVisibilityDecision) (result []proto.Tool, resultErr error) {
+	if visibility.Mode == assistantwire.ToolVisibilityFailClosed {
+		return []proto.Tool{}, nil
+	}
+	defer func() { result = localizedMCPTools(visibility.Filter(result), s.toolLanguage(ctx)) }()
 	if assistant && !s.assistantDiscovery(ctx, machine, session) {
 		s.logf("mcp tools: assistant discovery denied for machine %s session %s (tool_set=%q); falling back to agent tools", machine, short(session), toolSetOf(ctx))
 		s.noteAssistantDenied(ctx, machine, session, "mcp.tools")
@@ -229,6 +237,10 @@ func (s *Service) guestRefuses(ctx context.Context, machine, session, name strin
 // mcpCall runs one: a connector's, Cua's or ego's at the hub (it says whether it is one of them), else the
 // assistant's own (for its conversations), else the phone's.
 func (s *Service) mcpCall(ctx context.Context, machine, session, name string, args json.RawMessage, assistant bool) proto.ToolResult {
+	if err := s.toolVisibilityRefusal(ctx, machine, session, name); err != nil {
+		return proto.TextResult(i18n.Localize(err, s.lang(ctx)), true)
+	}
+	name = compat.MCPToolIdentity(name)
 	return s.mcpCallWithOrigin(ctx, machine, session, name, args, assistant, "")
 }
 
@@ -413,6 +425,9 @@ func (s *Service) mailAttachment(ctx context.Context, machine string, req proto.
 	// Not named "name": the i18n key check resolves constants by name across the package, and a constant called
 	// name would turn every "prefix."+name text wrapper into one whole key.
 	const saveAttachmentTool = "mail_save_attachment"
+	if err := s.toolVisibilityRefusal(ctx, machine, req.SessionID, saveAttachmentTool); err != nil {
+		return proto.MailAttachment{}, err
+	}
 	if s.isWorkMachine(machine) {
 		return proto.MailAttachment{}, errors.New(i18n.T(s.lang(ctx), "assistant-privacy.tool_denied"))
 	}

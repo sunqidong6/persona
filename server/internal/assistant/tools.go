@@ -82,7 +82,10 @@ func (s *Service) tool(ctx context.Context, call ToolCall) proto.ToolResult {
 	if err := s.conversationAvailable(ctx, call.MachineID, call.SessionID); err != nil {
 		return proto.TextResult(err.Error(), true)
 	}
-	call.Name = compat.Tool(call.Name)
+	call.Name = compat.MCPToolIdentity(call.Name)
+	if err := s.toolVisibilityRefusal(ctx, call.MachineID, call.SessionID, call.Name); err != nil {
+		return proto.TextResult(i18n.Localize(err, s.lang(ctx)), true)
+	}
 	if err := s.guardRefusal(ctx, call.MachineID, call.SessionID, call.Name); err != nil {
 		return proto.TextResult(err.Error(), true)
 	}
