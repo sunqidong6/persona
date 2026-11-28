@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/i18n"
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
@@ -59,6 +60,9 @@ func (s *Service) sessionMCPToolsSince(ctx context.Context, machine, session str
 	ctx = s.mcpDiscoveryContext(ctx, machine, session, assistant)
 	base, changed := s.mcpChanges.snapshot()
 	decision := s.toolVisibilityDecision(ctx, machine, session, true)
+	if decision.Mode == assistantwire.ToolVisibilityFailClosed {
+		return s.mcpVisibilityDiscoveryFailure(ctx, decision)
+	}
 	cursor := s.mcpVisibilityCursor(ctx, machine, session, assistant, base, decision)
 	if since == cursor {
 		noteMCPWatchEvent("wait")
@@ -73,6 +77,9 @@ func (s *Service) sessionMCPToolsSince(ctx context.Context, machine, session str
 			base, _ = s.mcpChanges.snapshot()
 			ctx = s.mcpDiscoveryContext(ctx, machine, session, assistant)
 			decision = s.toolVisibilityDecision(ctx, machine, session, true)
+			if decision.Mode == assistantwire.ToolVisibilityFailClosed {
+				return s.mcpVisibilityDiscoveryFailure(ctx, decision)
+			}
 			next := s.mcpVisibilityCursor(ctx, machine, session, assistant, base, decision)
 			if next == cursor {
 				return mcpDiscoveryUnchanged(cursor, decision, session)
@@ -85,6 +92,9 @@ func (s *Service) sessionMCPToolsSince(ctx context.Context, machine, session str
 	// disagree transiently, but the list and revision a client caches always come from the same effective decision.
 	ctx = s.mcpDiscoveryContext(ctx, machine, session, assistant)
 	decision = s.toolVisibilityDecision(ctx, machine, session, true)
+	if decision.Mode == assistantwire.ToolVisibilityFailClosed {
+		return s.mcpVisibilityDiscoveryFailure(ctx, decision)
+	}
 	tools, err := s.sessionMCPToolsVisible(ctx, machine, session, assistant, guest, decision)
 	if err != nil {
 		return map[string]any{"error": err.Error()}
@@ -99,6 +109,13 @@ func (s *Service) sessionMCPToolsSince(ctx context.Context, machine, session str
 	return out
 }
 
+func (s *Service) mcpVisibilityDiscoveryFailure(ctx context.Context, decision assistantwire.ToolVisibilityDecision) map[string]any {
+	return map[string]any{
+		"error":           i18n.T(s.lang(ctx), "assistant-tool_visibility.unavailable"),
+		"tool_visibility": decision,
+	}
+}
+
 func mcpDiscoveryUnchanged(cursor string, decision assistantwire.ToolVisibilityDecision, session string) map[string]any {
 	out := map[string]any{"revision": cursor, "unchanged": true}
 	if session != "" || decision.Mode != assistantwire.ToolVisibilityOpen {
@@ -108,9 +125,6 @@ func mcpDiscoveryUnchanged(cursor string, decision assistantwire.ToolVisibilityD
 }
 
 func (s *Service) mcpVisibilityCursor(ctx context.Context, machine, session string, assistant bool, base string, decision assistantwire.ToolVisibilityDecision) string {
-	if decision.Mode == assistantwire.ToolVisibilityFailClosed {
-		return base + ":visibility-unavailable"
-	}
 	base = s.guardDiscoveryCursor(ctx, machine, session, assistant, base)
 	if decision.Mode == assistantwire.ToolVisibilityOpen {
 		return base

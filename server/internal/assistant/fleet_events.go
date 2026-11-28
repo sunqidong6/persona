@@ -396,6 +396,13 @@ func (s *Service) nodeRequest(ctx context.Context, machine, method string, param
 		}
 		if p.LeaderOnly {
 			decision := s.toolVisibilityDecision(ctx, machine, session, true)
+			if decision.Mode == assistantwire.ToolVisibilityFailClosed {
+				out := s.mcpVisibilityDiscoveryFailure(ctx, decision)
+				if !p.WithVisibility {
+					delete(out, "tool_visibility")
+				}
+				return out, true, nil
+			}
 			out := map[string]any{"tools": decision.Filter(s.runtimeLeaderTools(ctx, machine, session, p.Guest))}
 			if p.WithVisibility && (session != "" || decision.Mode != assistantwire.ToolVisibilityOpen) {
 				out["tool_visibility"] = decision

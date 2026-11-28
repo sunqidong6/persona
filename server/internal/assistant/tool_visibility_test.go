@@ -22,6 +22,15 @@ const visibilityRefusedKey = "assistant-tool_visibility.refused"
 
 func visibilityDiscovery(t *testing.T, s *Service, ctx context.Context, input string) assistantwire.MCPToolsReply {
 	t.Helper()
+	out := requestVisibilityDiscovery(t, s, ctx, input)
+	if out.Error != "" {
+		t.Fatalf("discovery: %s", out.Error)
+	}
+	return out
+}
+
+func requestVisibilityDiscovery(t *testing.T, s *Service, ctx context.Context, input string) assistantwire.MCPToolsReply {
+	t.Helper()
 	res, handled, err := s.NodeRequest(ctx, "mac", assistantwire.NodeMCPTools, json.RawMessage(input))
 	if err != nil || !handled {
 		t.Fatalf("discovery handled=%t: %v", handled, err)
@@ -31,7 +40,7 @@ func visibilityDiscovery(t *testing.T, s *Service, ctx context.Context, input st
 		t.Fatal(err)
 	}
 	var out assistantwire.MCPToolsReply
-	if err := json.Unmarshal(raw, &out); err != nil || out.Error != "" {
+	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("discovery: %s (%v)", raw, err)
 	}
 	return out
@@ -216,8 +225,17 @@ func TestToolVisibilityColdStartFailsClosedAndRecovers(t *testing.T) {
 	ft := newFleetTestOn(t, st)
 	s, ctx := ft.s, t.Context()
 	const query = `{"session_id":"ordinary-chat","with_visibility":true}`
-	if res := visibilityDiscovery(t, s, ctx, query); len(res.Tools) != 0 || res.ToolVisibility.Mode != assistantwire.ToolVisibilityFailClosed {
-		t.Fatalf("unreadable cold settings returned %+v", res)
+	for _, input := range []string{query, `{"session_id":"ordinary-chat","leader_only":true,"with_visibility":true}`} {
+		res := requestVisibilityDiscovery(t, s, ctx, input)
+		if res.Tools != nil || res.Revision != "" || res.Error == "" || res.ToolVisibility == nil ||
+			res.ToolVisibility.Mode != assistantwire.ToolVisibilityFailClosed {
+			t.Fatalf("unreadable cold settings returned %+v", res)
+		}
+	}
+	const decisionQuery = `{"session_id":"ordinary-chat","visibility_only":true}`
+	if res := visibilityDiscovery(t, s, ctx, decisionQuery); res.ToolVisibility == nil ||
+		res.ToolVisibility.Mode != assistantwire.ToolVisibilityFailClosed {
+		t.Fatalf("cold visibility lookup returned %+v", res)
 	}
 	if res := s.Tool(ctx, ToolCall{MachineID: "mac", SessionID: "ordinary-chat", Name: "resource_status"}); !res.IsError {
 		t.Fatal("a direct tool call survived a cold settings failure")
