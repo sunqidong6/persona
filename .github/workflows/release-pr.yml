@@ -1,4 +1,4 @@
-name: release-pr
+name: Fork release plan timing
 
 # A release is an explicit PR, not a side effect of an ordinary feature merge.
 # This workflow never has signing credentials and never publishes a Release.
@@ -6,7 +6,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, edited]
   push:
-    branches: [main]
+    branches: [ci/17927-release-plan-before, ci/17927-release-plan-after]
 
 permissions:
   actions: read
