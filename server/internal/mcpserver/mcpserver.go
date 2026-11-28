@@ -17,6 +17,7 @@ import (
 
 	"github.com/nwverse/persona/server/internal/assistantskills"
 	"github.com/nwverse/persona/server/internal/assistantwire"
+	"github.com/nwverse/persona/server/internal/compat"
 	"github.com/nwverse/persona/server/internal/identity"
 	"github.com/nwverse/persona/server/internal/nodeclient"
 
@@ -353,6 +354,7 @@ func handle(ctx context.Context, version string, req request) (any, *rpcError) {
 		if rerr := checkCallParams(&p.Name, &p.Arguments); rerr != nil {
 			return nil, rerr
 		}
+		p.Name = compat.MCPToolIdentity(p.Name)
 		if p.Name == workSearchName && isAssistant() && !isGuest() && toolSet() == "" {
 			if result := searchWorkTools(ctx, p.Arguments); result != nil {
 				return result, nil
@@ -489,13 +491,7 @@ func listToolsOnce(ctx context.Context, previous toolSnapshot) (toolSnapshot, er
 	if err != nil {
 		return toolSnapshot{}, fmt.Errorf("Persona node is not reachable: %w", err)
 	}
-	var res struct {
-		Tools     []proto.Tool `json:"tools"`
-		Error     string       `json:"error"`
-		Revision  string       `json:"revision"`
-		Session   string       `json:"session"`
-		Unchanged bool         `json:"unchanged"`
-	}
+	var res assistantwire.MCPLocalToolsReply
 	if err := json.Unmarshal(line, &res); err != nil {
 		return toolSnapshot{}, fmt.Errorf("bad response from Persona node: %w", err)
 	}
@@ -503,7 +499,7 @@ func listToolsOnce(ctx context.Context, previous toolSnapshot) (toolSnapshot, er
 		return toolSnapshot{}, fmt.Errorf("Persona node could not list tools: %s", res.Error)
 	}
 	if res.Unchanged {
-		previous.Revision, previous.Session = res.Revision, res.Session
+		previous.Revision, previous.Session = res.Revision, res.Session.String()
 		return previous, nil
 	}
 	tools := []map[string]any{}
@@ -512,7 +508,7 @@ func listToolsOnce(ctx context.Context, previous toolSnapshot) (toolSnapshot, er
 		if os.Getenv("PERSONA_MCP_EXCLUDE_A2A") == "1" && assistantwire.IsA2ATool(t.Name) {
 			continue
 		}
-		if t.WorkGuideTool && isAssistant() && !isGuest() && toolSet() == "" {
+		if t.WorkGuideTool && !res.HideWorkSearch && isAssistant() && !isGuest() && toolSet() == "" {
 			if work == nil {
 				work = make(map[string]bool)
 			}
@@ -550,7 +546,7 @@ func listToolsOnce(ctx context.Context, previous toolSnapshot) (toolSnapshot, er
 			tools = append(tools, workSearchTool)
 		}
 	}
-	return toolSnapshot{Tools: tools, WorkGuide: work, Revision: res.Revision, Session: res.Session}, nil
+	return toolSnapshot{Tools: tools, WorkGuide: work, Revision: res.Revision, Session: res.Session.String()}, nil
 }
 
 // The assistant's processes start this server with PERSONA_ASSISTANT / PERSONA_SESSION_ID (node/assistant.go): it

@@ -149,9 +149,9 @@ Omitting an allowlist adds no allowlist restriction. An empty allowlist allows z
 alias and its current name are the same tool for these checks. An expiry uses RFC 3339 and takes effect at the named
 instant. Send `{"tool_visibility":{}}` to remove the policy.
 
-The same rule covers discovery and calls, including Persona tools implemented on the node and checks in Persona's
-tool hooks. Session-less runtime discovery can register schemas early. An attributed invocation then checks its own
-session. Existing tool permissions and approvals still apply.
+The same rule covers discovery and calls, including local command gates, Work Guide search, and Persona's tool hooks.
+Session-less runtime discovery can register schemas early. An attributed invocation then checks its own session.
+Existing tool permissions and approvals still apply.
 
 The manager waits for active nodes to invalidate their decisions before saving changes. A failed invalidation
 returns 503 and leaves the previous policy in effect. Older nodes that report an unknown method keep their legacy

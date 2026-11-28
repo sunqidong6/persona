@@ -28,6 +28,7 @@ import (
 	"github.com/nwverse/persona/server/internal/prompts"
 	"github.com/nwverse/persona/server/internal/proto"
 	"github.com/nwverse/persona/server/internal/rpc"
+	"github.com/nwverse/persona/server/internal/wireids"
 )
 
 func (n *Node) listenHookSocket(ctx context.Context) (net.Listener, error) {
@@ -260,14 +261,14 @@ func (n *Node) serveSock(ctx context.Context, c net.Conn) {
 			// runtime socket: the command gates' tools are its own, as there (runtimehost.go). Claude Code's assistant
 			// runs those commands with Bash, through its hook. Only a full list: an unchanged one keeps what was sent.
 			// shortcut: a gate that comes or goes while the hub's tools stay the same shows at their next change.
+			visibility := discoveryVisibility(res)
 			if res.Tools != nil && rt != nil && !guest && req.ToolSet == "" && res.Error == "" {
-				res.Tools = append(res.Tools, discoveryVisibility(res).Filter(n.gateTools())...)
+				res.Tools = append(res.Tools, visibility.Filter(n.gateTools())...)
 			}
 			res.ToolVisibility = nil // decision metadata stays between the manager and node
-			resp = struct {
-				assistantwire.MCPToolsReply
-				Session string `json:"session"`
-			}{res, session}
+			resp = assistantwire.MCPLocalToolsReply{
+				MCPToolsReply: res, Session: wireids.SessionID(session), HideWorkSearch: !visibility.Allows(assistantwire.MCPWorkSearchTool),
+			}
 		}
 	case "cli.call": // personad tg: the node, not the caller, says whether it is the assistant (clicall.go)
 		resp = n.cliCall(ctx, c, req)

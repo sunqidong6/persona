@@ -633,6 +633,7 @@ func (l *daemonLink) a2aTool(ctx context.Context, method string, params json.Raw
 	if !ok {
 		return nil, errUnsupportedForDaemons("tools without an owned session")
 	}
+	p.Name = compat.MCPToolIdentity(p.Name)
 	if method == "mcp.call" && !assistantwire.IsA2ATool(p.Name) {
 		return nil, errUnsupportedForDaemons("non-A2A tools")
 	}

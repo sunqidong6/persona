@@ -13,8 +13,60 @@ import (
 	"testing"
 
 	"github.com/nwverse/persona/server/internal/assistantskills"
+	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/proto"
 )
+
+func TestToolVisibilityFiltersLocalWorkSearch(t *testing.T) {
+	t.Setenv("PERSONA_ASSISTANT", "1")
+	t.Setenv("PERSONA_SESSION_ID", "assistant-test")
+	t.Chdir(t.TempDir())
+	for _, dir := range []string{".claude", ".agents"} {
+		if err := assistantskills.Sync(filepath.Join(dir, "skills"), t.TempDir(), assistantskills.Selection{WorkGuide: true}, t.Logf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	saved := dialNode
+	t.Cleanup(func() { dialNode = saved })
+	var hidden bool
+	var forwarded int
+	dialNode = func(_ context.Context, req any) ([]byte, error) {
+		r := req.(map[string]any)
+		if r["kind"] == "mcp.tools" {
+			return json.Marshal(assistantwire.MCPLocalToolsReply{
+				MCPToolsReply:  assistantwire.MCPToolsReply{Tools: []proto.Tool{{Name: "todo_get", WorkGuideTool: true}}},
+				HideWorkSearch: hidden,
+			})
+		}
+		if r["kind"] != "mcp.call" || r["name"] != workSearchName {
+			t.Errorf("unexpected node call: %v", r)
+		}
+		forwarded++
+		return json.Marshal(proto.TextResult("visibility refused", true))
+	}
+	listed := func(name string) bool {
+		t.Helper()
+		result, err := listToolsOnce(t.Context(), toolSnapshot{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return slices.ContainsFunc(result.Tools, func(tool map[string]any) bool { return tool["name"] == name })
+	}
+	if !listed(workSearchName) {
+		t.Fatal("default-open discovery hid local Work Guide search")
+	}
+	hidden = true
+	if listed(workSearchName) || !listed("todo_get") {
+		t.Fatal("the local search restriction altered unrelated work tools")
+	}
+	out, rpcErr := handle(t.Context(), "test", request{Method: "tools/call", Params: json.RawMessage(
+		`{"name":"mcp__jarvis__work_tools_search","arguments":{"query":"todo"}}`,
+	)})
+	raw, _ := json.Marshal(out)
+	if rpcErr != nil || forwarded != 1 || !strings.Contains(string(raw), "visibility refused") {
+		t.Fatalf("denied legacy search ran locally: %s, forwarded %d, error %v", raw, forwarded, rpcErr)
+	}
+}
 
 // Exercise the same list, discovery and original call handlers that a native MCP client uses.
 func TestWorkGuideCatalogStableAcrossSearchAndReconnect(t *testing.T) {

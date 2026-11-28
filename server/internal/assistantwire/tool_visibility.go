@@ -27,6 +27,7 @@ const (
 	NodeMCPTools                = "mcp.tools"
 	NodeMCPVisibilityInvalidate = "mcp.visibility.invalidate"
 	ToolVisibilityRoute         = "/api/v1/assistant/tool-visibility"
+	MCPWorkSearchTool           = "work_tools_search"
 )
 
 type ToolVisibilityRole string
@@ -130,6 +131,13 @@ type MCPToolsReply struct {
 	Unchanged      bool                    `json:"unchanged,omitempty"`
 	Error          MCPDiscoveryFailure     `json:"error,omitempty"`
 	ToolVisibility *ToolVisibilityDecision `json:"tool_visibility,omitempty"`
+}
+
+// MCPLocalToolsReply is the node.sock reply. The MCP process synthesizes Work Guide search from the listed tools.
+type MCPLocalToolsReply struct {
+	MCPToolsReply
+	Session        wireids.SessionID `json:"session"`
+	HideWorkSearch bool              `json:"hide_work_search,omitempty"`
 }
 
 type MCPDiscoveryFailure string

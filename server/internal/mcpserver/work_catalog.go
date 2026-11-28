@@ -7,10 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/proto"
 )
 
-const workSearchName = "work_tools_search"
+const workSearchName = assistantwire.MCPWorkSearchTool
 
 var workSearchTool = map[string]any{
 	"name":        workSearchName,
