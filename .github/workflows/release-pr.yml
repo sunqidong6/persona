@@ -98,6 +98,7 @@ jobs:
           # A PR's proposed merge result, not its possibly stale head or an arbitrary branch.
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 0
+          filter: blob:none # resolve-target checks ancestry in the merge result.
           persist-credentials: false
       - name: Verify PR authorization and create the immutable-source plan
         id: plan
@@ -184,6 +185,7 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.commit }}
           fetch-depth: 0
+          filter: blob:none # Release versioning and manifests use tags and commit history.
           persist-credentials: false
       - uses: actions/setup-go@v5
         with:
@@ -256,6 +258,7 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.commit }}
           fetch-depth: 0
+          filter: blob:none # Android versionCode uses the full first-parent count.
           persist-credentials: false
       - uses: actions/setup-java@v4
         with:
@@ -362,6 +365,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.plan.outputs.commit }}
+          # Apple stages a separate local clone with --shared for release verification.
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/download-artifact@v4
@@ -521,7 +525,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.plan.outputs.commit }}
-          fetch-depth: 0
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
@@ -604,7 +607,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.plan.outputs.merge_commit }}
-          fetch-depth: 0
           persist-credentials: false
       - name: Require every platform job to succeed before verification
         env:
@@ -709,7 +711,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.plan.outputs.commit }}
-          fetch-depth: 0
           persist-credentials: false
       - name: Squash the exact verified PR head, then require the main merge to be verified again
         env:

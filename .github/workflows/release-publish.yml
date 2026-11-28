@@ -88,6 +88,7 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
+          filter: blob:none # Authorization verifies ancestry before tagging.
           persist-credentials: false
       - name: Read the merged release PR metadata
         id: pr
@@ -242,7 +243,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.authorize.outputs.commit }}
-          fetch-depth: 0
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:

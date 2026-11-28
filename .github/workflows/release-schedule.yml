@@ -64,6 +64,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          filter: blob:none # Green source selection walks first-parent history and reads release tags.
           persist-credentials: false
       - name: Choose only a new green-CI main source and an unused immutable version
         id: select
